@@ -85,6 +85,19 @@
         </div>
     </div>
 
+    <!-- 雲端同步異常診斷橫幅（平時隱藏，若 Firebase 權限或資料庫異常時顯示，且資料會自動保底留在本機） -->
+    <div id="syncErrorBanner" class="hidden bg-rose-700 text-white px-3.5 py-2.5 text-xs shadow-md">
+        <div class="max-w-5xl mx-auto flex items-start justify-between gap-2.5">
+            <div class="flex items-start space-x-2">
+                <i class="fa-solid fa-cloud-exclamation mt-0.5 shrink-0"></i>
+                <span id="syncErrorText" class="leading-relaxed">雲端同步暫時異常，紀錄已安全保存於本機。</span>
+            </div>
+            <button type="button" onclick="hideSyncErrorBanner()" class="shrink-0 px-2 py-1 bg-white/15 hover:bg-white/25 text-white rounded-lg transition">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- 頂部導覽列（針對手機單手操作最佳化） -->
     <header class="sticky top-0 z-30 bg-indigoSake text-white shadow-md">
         <!-- 共用隱藏的還原酒單檔案選擇器 -->
@@ -636,6 +649,7 @@
             collection,
             doc,
             addDoc,
+            setDoc,
             updateDoc,
             deleteDoc,
             onSnapshot
@@ -667,6 +681,7 @@
         let sakeLogs = [];
         let uploadedImages = [];
         let pendingDeleteId = null;
+        let isSyncingPending = false;
 
         // 全域錯誤防護（避免未捕捉異常導致畫面無回應）
         window.addEventListener("error", (event) => {
@@ -702,7 +717,7 @@
             clearTimeout(window._toastTimer);
             window._toastTimer = setTimeout(() => {
                 box.classList.add("translate-y-24", "opacity-0");
-            }, 3800);
+            }, isError ? 6500 : 3800);
         }
 
         function copyCurrentUrl() {
@@ -726,6 +741,41 @@
             if (isInApp && banner) {
                 banner.classList.remove("hidden");
             }
+        }
+
+        function withTimeout(promise, ms = 12000) {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error("雲端連線逾時（超過 12 秒無回應）")), ms))
+            ]);
+        }
+
+        function formatCloudErrorHint(err) {
+            const code = String(err?.code || "").toLowerCase();
+            const msg = String(err?.message || "");
+            if (code.includes("permission-denied") || /missing or insufficient permissions/i.test(msg)) {
+                return "Firebase 雲端資料庫權限未開通（permission-denied）。紀錄已自動安全存於本機（重新整理不會消失），請至 Firebase 後台「Firestore Database → 規則」開啟已登入用戶讀寫權限。";
+            }
+            if (code.includes("not-found") || /database.*does not exist|not found/i.test(msg)) {
+                return "尚未在 Firebase 建立 Cloud Firestore 資料庫。紀錄已自動安全存於本機（重新整理不會消失），請至 Firebase 後台建立 Firestore Database。";
+            }
+            if (/逾時|timeout|unavailable|offline/i.test(msg) || code.includes("unavailable")) {
+                return "雲端資料庫連線逾時或尚未建立完成。紀錄已自動安全存於本機（重新整理不會消失），待連線恢復後會自動同步。";
+            }
+            return `雲端同步暫時異常（${msg || code || "未知錯誤"}）。紀錄已自動安全存於本機，重新整理不會消失。`;
+        }
+
+        function showSyncErrorBanner(err) {
+            const banner = document.getElementById("syncErrorBanner");
+            const msgEl = document.getElementById("syncErrorText");
+            if (!banner || !msgEl) return;
+            msgEl.textContent = formatCloudErrorHint(err);
+            banner.classList.remove("hidden");
+        }
+
+        function hideSyncErrorBanner() {
+            const banner = document.getElementById("syncErrorBanner");
+            if (banner) banner.classList.add("hidden");
         }
 
         function closeAllUserMenus() {
@@ -944,6 +994,46 @@
             });
         }
 
+        // 針對多張酒標照片進行二次壓縮，確保不超過 Firestore 單筆 1MB 上限
+        function recompressDataUrl(dataUrl, maxDim, quality) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    let { width, height } = img;
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+                    const canvas = document.createElement("canvas");
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL("image/jpeg", quality));
+                };
+                img.onerror = () => resolve(dataUrl);
+                img.src = dataUrl;
+            });
+        }
+
+        async function prepareImagesForCloud(images) {
+            if (!Array.isArray(images) || !images.length) return [];
+            const calcSize = (arr) => arr.reduce((sum, s) => sum + (s ? s.length : 0), 0);
+            let result = [...images];
+            if (calcSize(result) <= 680000) return result;
+
+            result = await Promise.all(result.map((src) => recompressDataUrl(src, 720, 0.65)));
+            if (calcSize(result) <= 680000) return result;
+
+            result = await Promise.all(result.map((src) => recompressDataUrl(src, 540, 0.52)));
+            return result;
+        }
+
         async function handleImageUpload(event) {
             const files = Array.from(event.target.files || []);
             if (!files.length) return;
@@ -1063,7 +1153,6 @@
             const payload = {
                 contents: [{ role: "user", parts }],
                 generationConfig: {
-                    temperature: 0.2,
                     responseMimeType: "application/json"
                 }
             };
@@ -1072,45 +1161,51 @@
             const endpoints = isPreviewEnv
                 ? [
                     {
+                        label: "preview",
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=",
                         headers: { "Content-Type": "application/json" }
                     }
                 ]
                 : [
-                    // 1. Google AI Studio 免費版主力模型（免綁卡）
+                    // 1. 第一順位：高免費配額、低延遲多模態模型（免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 2. 官方備援模型：Gemini 3.7 Flash（獨立每日免費額度，免綁卡）
-                    {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 3. 官方備援模型：Gemini 3.6 Flash（獨立每日免費額度，免綁卡）
-                    {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 4. 官方輕量高速備援：Gemini 3.5 Flash-Lite（獨立每日免費額度，免綁卡）
-                    {
+                        label: "3.5-flash-lite",
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 5. 同專案傳統 AIzaSy 金鑰備援（免綁卡）
+                    // 2. 第二順位：Gemini 4 Hydrogen 免費版模型（免綁卡）
                     {
+                        label: "4-hydrogen",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 3. 第三順位：Gemini 3.1 Flash-Lite（獨立免費額度，免綁卡）
+                    {
+                        label: "3.1-flash-lite",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 4. 第四順位：Gemini 3.8 Flash（獨立免費額度，免綁卡）
+                    {
+                        label: "3.8-flash",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 5. 第五順位：同專案傳統 AIzaSy 金鑰備援（免綁卡）
+                    {
+                        label: "3.5-lite-alt",
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
                         headers: {
                             "Content-Type": "application/json",
@@ -1123,14 +1218,13 @@
 
             try {
                 let responseJson = null;
-                let primaryErrorMsg = "";
-                let lastErrorMsg = "無法連線至 Gemini AI 服務";
+                const errorDetails = [];
 
                 for (const ep of endpoints) {
                     const maxAttempts = 2;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 25000);
+                        const timeoutId = setTimeout(() => controller.abort(), 35000);
                         try {
                             const res = await fetch(ep.url, {
                                 method: "POST",
@@ -1144,34 +1238,33 @@
                                 responseJson = data;
                                 break;
                             } else {
-                                lastErrorMsg = data?.error?.message || `HTTP ${res.status}`;
-                                if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
-
-                                // 若為單一模型每日額度已滿（HTTP 429），立刻跳轉下一個免費備援模型，不浪費時間重試
-                                const isQuotaExceeded = res.status === 429 || /quota|rate.?limit|exceeded/i.test(lastErrorMsg);
+                                const errMsg = data?.error?.message || `HTTP ${res.status}`;
+                                const isQuotaExceeded = res.status === 429 || /quota|rate.?limit|exceeded/i.test(errMsg);
                                 if (isQuotaExceeded) {
+                                    errorDetails.push(`${ep.label}[今日額度已滿]`);
                                     btnText.textContent = "切換備援模型中...";
                                     break;
                                 }
 
                                 const isTemporaryBusy = res.status === 503 ||
-                                    /high demand|overloaded|unavailable|try again/i.test(lastErrorMsg);
+                                    /high demand|overloaded|unavailable|try again/i.test(errMsg);
                                 if (isTemporaryBusy && attempt < maxAttempts) {
                                     btnText.textContent = "AI 尖峰重試中...";
                                     await waitMs(1800);
                                     continue;
                                 }
+                                errorDetails.push(`${ep.label}[${errMsg.slice(0, 70)}]`);
                                 break;
                             }
                         } catch (fetchErr) {
                             clearTimeout(timeoutId);
-                            lastErrorMsg = fetchErr.name === "AbortError" ? "連線逾時（請確認網路狀態）" : (fetchErr.message || "網路連線中斷");
-                            if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
+                            const errMsg = fetchErr.name === "AbortError" ? "連線逾時" : (fetchErr.message || "網路中斷");
                             if (attempt < maxAttempts) {
                                 btnText.textContent = "連線重試中...";
                                 await waitMs(1200);
                                 continue;
                             }
+                            errorDetails.push(`${ep.label}[${errMsg}]`);
                             break;
                         }
                     }
@@ -1179,7 +1272,7 @@
                 }
 
                 if (!responseJson) {
-                    throw new Error(primaryErrorMsg || lastErrorMsg);
+                    throw new Error(errorDetails.join(" / ") || "無法連線至 Gemini AI 服務");
                 }
 
                 // 解析 AI 回傳的 JSON 文字並容錯去除 Markdown 程式碼圍欄
@@ -1301,64 +1394,99 @@
         async function saveSakeLog(event) {
             event.preventDefault();
             const submitBtn = document.getElementById("saveSubmitBtn");
+            const originalBtnHtml = submitBtn.innerHTML;
             submitBtn.disabled = true;
+            submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i>儲存中...`;
 
             const editId = document.getElementById("editDocId").value.trim();
             const nowIso = new Date().toISOString();
 
-            const record = {
-                sakeName: document.getElementById("sakeName").value.trim(),
-                brewery: document.getElementById("brewery").value.trim(),
-                sakeType: document.getElementById("sakeType").value,
-                openDate: document.getElementById("openDate").value || nowIso.slice(0, 10),
-                rating: Number(document.getElementById("ratingValue").value) || 4,
-                prefecture: document.getElementById("prefecture").value.trim(),
-                riceType: document.getElementById("riceType").value.trim(),
-                polishingRatio: document.getElementById("polishingRatio").value.trim(),
-                alcoholContent: document.getElementById("alcoholContent").value.trim(),
-                servingTemp: document.getElementById("servingTemp").value.trim(),
-                sakeColor: document.getElementById("sakeColor").value.trim(),
-                acidity: document.getElementById("acidity").value,
-                flavor: document.getElementById("flavor").value.trim(),
-                mouthfeel: document.getElementById("mouthfeel").value.trim(),
-                taste: document.getElementById("taste").value.trim(),
-                notes: document.getElementById("notes").value.trim(),
-                radar: {
-                    aroma: getRadarInputVal("radarAroma"),
-                    sweetness: getRadarInputVal("radarSweetness"),
-                    acidityScore: getRadarInputVal("radarAcidityScore"),
-                    umami: getRadarInputVal("radarUmami"),
-                    dryness: getRadarInputVal("radarDryness")
-                },
-                images: [...uploadedImages],
-                updatedAt: nowIso
-            };
-
             try {
+                // 自動最佳化照片總容量，避免超過雲端 1MB 單筆上限
+                const safeImages = await prepareImagesForCloud(uploadedImages);
+
+                const record = {
+                    sakeName: document.getElementById("sakeName").value.trim(),
+                    brewery: document.getElementById("brewery").value.trim(),
+                    sakeType: document.getElementById("sakeType").value,
+                    openDate: document.getElementById("openDate").value || nowIso.slice(0, 10),
+                    rating: Number(document.getElementById("ratingValue").value) || 4,
+                    prefecture: document.getElementById("prefecture").value.trim(),
+                    riceType: document.getElementById("riceType").value.trim(),
+                    polishingRatio: document.getElementById("polishingRatio").value.trim(),
+                    alcoholContent: document.getElementById("alcoholContent").value.trim(),
+                    servingTemp: document.getElementById("servingTemp").value.trim(),
+                    sakeColor: document.getElementById("sakeColor").value.trim(),
+                    acidity: document.getElementById("acidity").value,
+                    flavor: document.getElementById("flavor").value.trim(),
+                    mouthfeel: document.getElementById("mouthfeel").value.trim(),
+                    taste: document.getElementById("taste").value.trim(),
+                    notes: document.getElementById("notes").value.trim(),
+                    radar: {
+                        aroma: getRadarInputVal("radarAroma"),
+                        sweetness: getRadarInputVal("radarSweetness"),
+                        acidityScore: getRadarInputVal("radarAcidityScore"),
+                        umami: getRadarInputVal("radarUmami"),
+                        dryness: getRadarInputVal("radarDryness")
+                    },
+                    images: safeImages,
+                    updatedAt: nowIso
+                };
+
                 if (db && currentUser) {
                     const colRef = collection(db, "users", currentUser.uid, "sakeLogs");
-                    if (editId) {
-                        await updateDoc(doc(colRef, editId), record);
-                        showToast("已更新雲端品飲紀錄！");
-                    } else {
-                        record.createdAt = nowIso;
-                        await addDoc(colRef, record);
-                        showToast("已新增並同步至雲端酒單！");
+                    try {
+                        if (editId && !editId.startsWith("local_")) {
+                            await withTimeout(updateDoc(doc(colRef, editId), record), 12000);
+                            showToast("已更新雲端品飲紀錄！");
+                        } else {
+                            record.createdAt = nowIso;
+                            await withTimeout(addDoc(colRef, record), 12000);
+                            // 若原本為離線暫存紀錄，成功上雲後清除本機暫存副本
+                            if (editId && editId.startsWith("local_")) {
+                                const cached = await readLocalLogsStore();
+                                await writeLocalLogsStore(cached.filter((i) => i.id !== editId));
+                            }
+                            showToast("已新增並同步至雲端酒單！");
+                        }
+                        hideSyncErrorBanner();
+                    } catch (cloudErr) {
+                        console.error("Cloud Save Fallback to Local:", cloudErr);
+                        // 雲端寫入異常時，立即保底存進本機大容量資料庫，確保重新整理不會不見
+                        const cached = await readLocalLogsStore();
+                        if (editId) {
+                            const idx = cached.findIndex((item) => item.id === editId);
+                            const fallbackItem = { ...record, id: editId, pendingSync: true, createdAt: (idx !== -1 ? cached[idx].createdAt : nowIso) };
+                            if (idx !== -1) cached[idx] = fallbackItem;
+                            else cached.unshift(fallbackItem);
+                        } else {
+                            const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                            cached.unshift({ ...record, id: localId, pendingSync: true, createdAt: nowIso });
+                        }
+                        await writeLocalLogsStore(cached);
+                        sakeLogs = mergeLogsList(sakeLogs.filter((i) => !i.pendingSync && i.id !== editId), cached);
+                        renderSakeList();
+                        showSyncErrorBanner(cloudErr);
+                        showToast("雲端寫入失敗，已自動安全改存本機（重新整理不會消失）！", true);
                     }
                 } else {
+                    const cached = await readLocalLogsStore();
                     if (editId) {
-                        const idx = sakeLogs.findIndex((item) => item.id === editId);
+                        const idx = cached.findIndex((item) => item.id === editId);
                         if (idx !== -1) {
-                            sakeLogs[idx] = { ...sakeLogs[idx], ...record };
+                            cached[idx] = { ...cached[idx], ...record };
+                        } else {
+                            cached.unshift({ ...record, id: editId, createdAt: nowIso });
                         }
                         showToast("已更新本機品飲紀錄！");
                     } else {
                         record.id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
                         record.createdAt = nowIso;
-                        sakeLogs.unshift(record);
+                        cached.unshift(record);
                         showToast("已儲存至本機酒單！");
                     }
-                    saveLocalLogs();
+                    sakeLogs = cached;
+                    await writeLocalLogsStore(cached);
                     renderSakeList();
                 }
                 switchView("list");
@@ -1367,6 +1495,7 @@
                 showToast(`儲存失敗：${err.message || "請稍後再試"}`, true);
             } finally {
                 submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnHtml;
             }
         }
 
@@ -1590,12 +1719,14 @@
             closeDetailModal();
 
             try {
-                if (db && currentUser) {
-                    await deleteDoc(doc(db, "users", currentUser.uid, "sakeLogs", targetId));
+                if (db && currentUser && !targetId.startsWith("local_")) {
+                    await withTimeout(deleteDoc(doc(db, "users", currentUser.uid, "sakeLogs", targetId)), 12000);
                     showToast("已從雲端刪除品飲紀錄");
                 } else {
+                    const cached = await readLocalLogsStore();
+                    const nextLocal = cached.filter((item) => item.id !== targetId);
+                    await writeLocalLogsStore(nextLocal);
                     sakeLogs = sakeLogs.filter((item) => item.id !== targetId);
-                    saveLocalLogs();
                     renderSakeList();
                     showToast("已從本機刪除品飲紀錄");
                 }
@@ -1604,23 +1735,96 @@
             }
         }
 
-        // ==================== 10. 本機存取與 JSON 備份 / 還原 ====================
-        function loadLocalLogs() {
+        // ==================== 10. 大容量本機儲存 (IndexedDB) 與 JSON 備份 / 還原 ====================
+        const IDB_NAME = "SakeTastingLocalDB";
+        const IDB_STORE = "kv";
+        const IDB_KEY = "sakeLogs";
+
+        function openLocalDb() {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) {
+                    reject(new Error("IndexedDB unavailable"));
+                    return;
+                }
+                const req = indexedDB.open(IDB_NAME, 1);
+                req.onupgradeneeded = () => {
+                    const idb = req.result;
+                    if (!idb.objectStoreNames.contains(IDB_STORE)) {
+                        idb.createObjectStore(IDB_STORE);
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
+            });
+        }
+
+        async function readLocalLogsStore() {
+            try {
+                const idb = await openLocalDb();
+                const data = await new Promise((resolve, reject) => {
+                    const tx = idb.transaction(IDB_STORE, "readonly");
+                    const store = tx.objectStore(IDB_STORE);
+                    const req = store.get(IDB_KEY);
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                if (Array.isArray(data)) return data;
+            } catch (err) {
+                console.warn("IndexedDB read fallback:", err);
+            }
+            // 自動向下遷移舊版 localStorage 資料
             try {
                 const raw = localStorage.getItem(LOCAL_LOGS_STORAGE);
-                sakeLogs = raw ? JSON.parse(raw) : [];
+                const parsed = raw ? JSON.parse(raw) : [];
+                if (Array.isArray(parsed) && parsed.length) {
+                    await writeLocalLogsStore(parsed);
+                    return parsed;
+                }
             } catch (err) {
-                sakeLogs = [];
+                console.warn("localStorage read fallback:", err);
             }
+            return [];
+        }
+
+        async function writeLocalLogsStore(logs) {
+            try {
+                const idb = await openLocalDb();
+                await new Promise((resolve, reject) => {
+                    const tx = idb.transaction(IDB_STORE, "readwrite");
+                    const store = tx.objectStore(IDB_STORE);
+                    const req = store.put(logs, IDB_KEY);
+                    req.onsuccess = () => resolve();
+                    req.onerror = () => reject(req.error);
+                });
+                return true;
+            } catch (err) {
+                console.warn("IndexedDB write failed, trying localStorage:", err);
+                try {
+                    localStorage.setItem(LOCAL_LOGS_STORAGE, JSON.stringify(logs));
+                    return true;
+                } catch (lsErr) {
+                    showToast("本機儲存空間不足，建議匯出 JSON 備份檔！", true);
+                    return false;
+                }
+            }
+        }
+
+        function mergeLogsList(cloudList, localList) {
+            const byId = new Map();
+            (cloudList || []).forEach((item) => byId.set(item.id, item));
+            (localList || []).forEach((item) => {
+                if (!byId.has(item.id)) byId.set(item.id, item);
+            });
+            return Array.from(byId.values());
+        }
+
+        async function loadLocalLogs() {
+            sakeLogs = await readLocalLogsStore();
             renderSakeList();
         }
 
-        function saveLocalLogs() {
-            try {
-                localStorage.setItem(LOCAL_LOGS_STORAGE, JSON.stringify(sakeLogs));
-            } catch (err) {
-                showToast("本機儲存空間不足，建議登入 Google 雲端或匯出備份！", true);
-            }
+        async function saveLocalLogs() {
+            await writeLocalLogsStore(sakeLogs);
         }
 
         function exportBackupJson() {
@@ -1653,17 +1857,35 @@
 
                 if (db && currentUser) {
                     const colRef = collection(db, "users", currentUser.uid, "sakeLogs");
-                    for (const item of imported) {
-                        const { id, ...cleanData } = item;
-                        await addDoc(colRef, {
-                            ...cleanData,
-                            importedAt: new Date().toISOString()
+                    try {
+                        for (const item of imported) {
+                            const { id, pendingSync, ...cleanData } = item;
+                            if (Array.isArray(cleanData.images)) {
+                                cleanData.images = await prepareImagesForCloud(cleanData.images);
+                            }
+                            await withTimeout(addDoc(colRef, {
+                                ...cleanData,
+                                importedAt: new Date().toISOString()
+                            }), 12000);
+                        }
+                        hideSyncErrorBanner();
+                        showToast(`已成功還原 ${imported.length} 筆紀錄至雲端！`);
+                    } catch (cloudErr) {
+                        const cached = await readLocalLogsStore();
+                        imported.forEach((item) => {
+                            const newId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                            cached.unshift({ ...item, id: newId, pendingSync: true });
                         });
+                        await writeLocalLogsStore(cached);
+                        sakeLogs = mergeLogsList(sakeLogs, cached);
+                        renderSakeList();
+                        showSyncErrorBanner(cloudErr);
+                        showToast(`雲端還原受限，已改為還原 ${imported.length} 筆至本機！`, true);
                     }
-                    showToast(`已成功還原 ${imported.length} 筆紀錄至雲端！`);
                 } else {
-                    const existingIds = new Set(sakeLogs.map((i) => i.id));
-                    const merged = [...sakeLogs];
+                    const cached = await readLocalLogsStore();
+                    const existingIds = new Set(cached.map((i) => i.id));
+                    const merged = [...cached];
                     imported.forEach((item) => {
                         const newId = item.id && !existingIds.has(item.id)
                             ? item.id
@@ -1671,7 +1893,7 @@
                         merged.push({ ...item, id: newId });
                     });
                     sakeLogs = merged;
-                    saveLocalLogs();
+                    await writeLocalLogsStore(merged);
                     renderSakeList();
                     showToast(`已成功還原 ${imported.length} 筆紀錄至本機！`);
                 }
@@ -1747,9 +1969,45 @@
             if (!auth) return;
             try {
                 await signOut(auth);
+                hideSyncErrorBanner();
                 showToast("已登出 Google 帳號，切換回本機模式");
             } catch (err) {
                 showToast(`登出失敗：${err.message}`, true);
+            }
+        }
+
+        // 當雲端連線恢復時，自動將本機待同步（pendingSync）的紀錄補送上雲
+        async function syncPendingLocalLogs(user) {
+            if (!db || !user || isSyncingPending) return;
+            isSyncingPending = true;
+            try {
+                const cached = await readLocalLogsStore();
+                const pendingItems = cached.filter((item) => item.pendingSync);
+                if (!pendingItems.length) return;
+
+                const colRef = collection(db, "users", user.uid, "sakeLogs");
+                const syncedIds = new Set();
+                for (const item of pendingItems) {
+                    try {
+                        const { id, pendingSync, ...cleanData } = item;
+                        if (Array.isArray(cleanData.images)) {
+                            cleanData.images = await prepareImagesForCloud(cleanData.images);
+                        }
+                        await withTimeout(addDoc(colRef, cleanData), 12000);
+                        syncedIds.add(id);
+                    } catch (err) {
+                        console.warn("Pending item sync deferred:", err);
+                        break;
+                    }
+                }
+
+                if (syncedIds.size > 0) {
+                    const remaining = cached.filter((item) => !syncedIds.has(item.id));
+                    await writeLocalLogsStore(remaining);
+                    showToast(`已自動將 ${syncedIds.size} 筆本機暫存紀錄補同步至雲端！`);
+                }
+            } finally {
+                isSyncingPending = false;
             }
         }
 
@@ -1759,7 +2017,7 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                onAuthStateChanged(auth, (user) => {
+                onAuthStateChanged(auth, async (user) => {
                     currentUser = user;
                     updateAuthUi(user);
 
@@ -1769,22 +2027,58 @@
                     }
 
                     if (user) {
-                        document.getElementById("loadingIndicator").classList.remove("hidden");
+                        // 先載入本機暫存紀錄，避免雲端尚未回應或失敗時畫面空白
+                        const cachedLocal = await readLocalLogsStore();
+                        if (cachedLocal.length) {
+                            sakeLogs = cachedLocal;
+                            renderSakeList();
+                        }
+
+                        const loader = document.getElementById("loadingIndicator");
+                        loader.classList.remove("hidden");
+
+                        // 防止 Firestore 尚未建立時永久卡在轉圈
+                        let snapshotSettled = false;
+                        const fallbackTimer = setTimeout(() => {
+                            if (!snapshotSettled) {
+                                loader.classList.add("hidden");
+                                renderSakeList();
+                            }
+                        }, 6000);
+
                         const colRef = collection(db, "users", user.uid, "sakeLogs");
-                        unsubscribeLogs = onSnapshot(colRef, (snapshot) => {
-                            document.getElementById("loadingIndicator").classList.add("hidden");
-                            sakeLogs = snapshot.docs.map((docSnap) => ({
+                        unsubscribeLogs = onSnapshot(colRef, async (snapshot) => {
+                            snapshotSettled = true;
+                            clearTimeout(fallbackTimer);
+                            loader.classList.add("hidden");
+                            hideSyncErrorBanner();
+
+                            const cloudDocs = snapshot.docs.map((docSnap) => ({
                                 id: docSnap.id,
                                 ...docSnap.data()
                             }));
+                            const latestLocal = await readLocalLogsStore();
+                            const unsyncedLocal = latestLocal.filter((i) => i.pendingSync);
+
+                            sakeLogs = mergeLogsList(cloudDocs, unsyncedLocal);
                             renderSakeList();
-                        }, (err) => {
-                            document.getElementById("loadingIndicator").classList.add("hidden");
+
+                            if (unsyncedLocal.length) {
+                                syncPendingLocalLogs(user);
+                            }
+                        }, async (err) => {
+                            snapshotSettled = true;
+                            clearTimeout(fallbackTimer);
+                            loader.classList.add("hidden");
                             console.error("Firestore Snapshot Error:", err);
-                            showToast(`雲端讀取失敗：${err.message}`, true);
+                            showSyncErrorBanner(err);
+                            // 雲端讀取失敗時保留並顯示本機紀錄，確保重新整理資料不遺失
+                            sakeLogs = await readLocalLogsStore();
+                            renderSakeList();
                         });
                     } else {
-                        loadLocalLogs();
+                        hideSyncErrorBanner();
+                        await loadLocalLogs();
                     }
                 });
             } catch (err) {
@@ -1796,6 +2090,7 @@
         // ==================== 12. 掛載全域函式並啟動應用 ====================
         Object.assign(window, {
             copyCurrentUrl,
+            hideSyncErrorBanner,
             toggleUserMenu,
             closeAllUserMenus,
             triggerImportBackup,
