@@ -969,30 +969,30 @@
             const endpoints = isPreviewEnv
                 ? [
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=",
                         headers: { "Content-Type": "application/json" }
                     }
                 ]
                 : [
-                    // 1. Google AI Studio 免費版官方標準通道（使用 x-goog-api-key 標頭傳遞 AQ. 金鑰，無需綁卡）
+                    // 1. Google AI Studio 免費版最新官方模型（依系統提示升級至 gemini-3.8-flash，免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 2. 免費版輕量高速模型備援（同樣免綁卡）
+                    // 2. Gemini 3 Flash 備援模型（同樣免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 3. 同專案傳統 AIzaSy 金鑰備援（走免費版 Gemini API）
+                    // 3. 同專案傳統 AIzaSy 金鑰備援（走免費版 gemini-3.8-flash）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": defaultFirebaseConfig.apiKey
