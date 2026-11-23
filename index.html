@@ -55,6 +55,19 @@
             background: #C5BBAE;
             border-radius: 9999px;
         }
+        /* 修正 iOS 手機版日期輸入框寬度溢出與預設置中問題 */
+        input[type="date"] {
+            -webkit-appearance: none;
+            appearance: none;
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        input[type="date"]::-webkit-date-and-time-value {
+            text-align: left;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased selection:bg-indigoSake selection:text-white overflow-x-hidden">
@@ -394,10 +407,10 @@
                                 <option value="特別純米酒">特別純米酒</option>
                                 <option value="純米酒">純米酒</option>
                                 <option value="本釀造">本釀造</option>
-                                <option value="生酒 / 原酒">生酒 / 原酒</option>
-                                <option value="濁酒 / 氣泡清酒">濁酒 / 氣泡清酒</option>
-                                <option value="其他">其他</option>
-                            </select>
+                        <div class="min-w-0">
+                            <label class="block text-xs font-bold text-sumi mb-1.5">開瓶 / 品飲日期</label>
+                            <input type="date" id="openDate"
+                                class="block w-full max-w-full min-w-0 px-3.5 py-2.5 bg-washi border border-stoneWarm rounded-xl text-base sm:text-sm text-left appearance-none focus:outline-none focus:border-indigoSake">
                         </div>
 
                         <div>
@@ -1067,7 +1080,15 @@
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 2. Gemini 3 Flash 備援模型（同樣免綁卡）
+                    // 2. 輕量快速備援模型（尖峰時段較不易塞車，同樣免綁卡）
+                    {
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 3. Gemini 3 Flash 備援模型（同樣免綁卡）
                     {
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
                         headers: {
@@ -1075,7 +1096,15 @@
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 3. 同專案傳統 AIzaSy 金鑰備援（走免費版 gemini-3.8-flash）
+                    // 4. Gemini 2.5 Flash Lite 備援模型（免綁卡）
+                    {
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 5. 同專案傳統 AIzaSy 金鑰備援（走免費版 gemini-3.8-flash）
                     {
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
                         headers: {
@@ -1085,30 +1114,51 @@
                     }
                 ];
 
+            const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
             try {
                 let responseJson = null;
                 let primaryErrorMsg = "";
                 let lastErrorMsg = "無法連線至 Gemini AI 服務";
 
                 for (const ep of endpoints) {
-                    try {
-                        const res = await fetch(ep.url, {
-                            method: "POST",
-                            headers: ep.headers,
-                            body: JSON.stringify(payload)
-                        });
-                        const data = await res.json();
-                        if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-                            responseJson = data;
-                            break;
-                        } else {
-                            lastErrorMsg = data?.error?.message || `HTTP ${res.status}`;
+                    const maxAttempts = 2;
+                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        try {
+                            const res = await fetch(ep.url, {
+                                method: "POST",
+                                headers: ep.headers,
+                                body: JSON.stringify(payload)
+                            });
+                            const data = await res.json();
+                            if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                                responseJson = data;
+                                break;
+                            } else {
+                                lastErrorMsg = data?.error?.message || `HTTP ${res.status}`;
+                                if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
+
+                                const isTemporaryBusy = res.status === 503 || res.status === 429 ||
+                                    /high demand|overloaded|unavailable|try again/i.test(lastErrorMsg);
+                                if (isTemporaryBusy && attempt < maxAttempts) {
+                                    btnText.textContent = "AI 尖峰重試中...";
+                                    await waitMs(1500);
+                                    continue;
+                                }
+                                break;
+                            }
+                        } catch (fetchErr) {
+                            lastErrorMsg = fetchErr.message || "網路連線中斷";
                             if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
+                            if (attempt < maxAttempts) {
+                                btnText.textContent = "連線重試中...";
+                                await waitMs(1200);
+                                continue;
+                            }
+                            break;
                         }
-                    } catch (fetchErr) {
-                        lastErrorMsg = fetchErr.message || "網路連線中斷";
-                        if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
                     }
+                    if (responseJson) break;
                 }
 
                 if (!responseJson) {
