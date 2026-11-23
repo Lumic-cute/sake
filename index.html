@@ -74,8 +74,11 @@
 
     <!-- 頂部導覽列（針對手機單手操作最佳化） -->
     <header class="sticky top-0 z-30 bg-indigoSake text-white shadow-md">
+        <!-- 共用隱藏的還原酒單檔案選擇器 -->
+        <input type="file" id="importBackupInput" accept=".json,application/json" onchange="importBackupJson(event)" class="hidden">
+
         <div class="max-w-5xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between sm:gap-2">
-            <!-- 第一列（手機版）：品牌標題 + Google 登入狀態 -->
+            <!-- 第一列（手機版）：品牌標題 + Google 登入 / 會員整合選單 -->
             <div class="flex items-center justify-between gap-2 min-w-0">
                 <div class="flex items-center space-x-2.5 min-w-0">
                     <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-goldAccent text-lg sm:text-xl shrink-0">
@@ -87,55 +90,100 @@
                     </div>
                 </div>
 
-                <!-- 手機版右上角：Google 帳號登入 / 會員狀態 -->
+                <!-- 手機版右上角：Google 帳號登入 / 會員名稱整合選單 -->
                 <div class="flex items-center space-x-1.5 sm:hidden shrink-0">
-                    <button type="button" id="googleLoginBtnMobile" onclick="signInWithGoogle()" class="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-sumi active:bg-slate-100 shadow-sm transition inline-flex items-center">
-                        <i class="fa-brands fa-google text-red-500 mr-1.5"></i><span>Google 登入</span>
-                    </button>
-                    <div id="userProfileBadgeMobile" class="hidden items-center space-x-1.5 bg-white/15 border border-white/20 pl-2 pr-2.5 py-1 rounded-xl min-h-[38px]">
-                        <img id="userAvatarMobile" src="" alt="頭像" class="w-6 h-6 rounded-full object-cover border border-white/40 hidden">
-                        <span id="userDisplayNameMobile" class="text-xs font-medium text-white max-w-[72px] truncate"></span>
-                        <button type="button" onclick="signOutGoogle()" title="登出 Google 帳號" class="text-xs text-slate-200 hover:text-white pl-1.5 border-l border-white/20 py-0.5">
-                            <i class="fa-solid fa-right-from-bracket"></i>
+                    <div id="localAuthWrapMobile" class="flex items-center space-x-1.5">
+                        <button type="button" id="googleLoginBtnMobile" onclick="signInWithGoogle()" class="min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-sumi active:bg-slate-100 shadow-sm transition inline-flex items-center">
+                            <i class="fa-brands fa-google text-red-500 mr-1.5"></i><span>Google 登入</span>
                         </button>
+                        <div class="relative">
+                            <button type="button" onclick="toggleUserMenu('localMenuDropdownMobile', event)" title="酒單備份與還原" class="min-h-[38px] px-2.5 py-1.5 rounded-xl text-xs bg-white/15 hover:bg-white/25 text-white border border-white/20 transition inline-flex items-center">
+                                <i class="fa-solid fa-ellipsis-vertical"></i>
+                            </button>
+                            <div id="localMenuDropdownMobile" class="user-dropdown hidden absolute right-0 mt-2 w-44 bg-white text-sumi rounded-xl shadow-xl border border-stoneWarm py-1.5 z-50">
+                                <button type="button" onclick="exportBackupJson(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                    <i class="fa-solid fa-download text-indigoSake w-4 text-center"></i><span>備份酒單</span>
+                                </button>
+                                <button type="button" onclick="triggerImportBackup(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                    <i class="fa-solid fa-upload text-indigoSake w-4 text-center"></i><span>上傳 / 還原酒單</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="userProfileBadgeMobile" class="hidden relative">
+                        <button type="button" onclick="toggleUserMenu('userMenuDropdownMobile', event)" class="flex items-center space-x-1.5 bg-white/15 hover:bg-white/25 border border-white/20 pl-2 pr-2.5 py-1 rounded-xl min-h-[38px] transition">
+                            <img id="userAvatarMobile" src="" alt="頭像" class="w-6 h-6 rounded-full object-cover border border-white/40 hidden">
+                            <span id="userDisplayNameMobile" class="text-xs font-medium text-white max-w-[78px] truncate"></span>
+                            <i class="fa-solid fa-chevron-down text-[10px] text-slate-200 ml-0.5"></i>
+                        </button>
+                        <div id="userMenuDropdownMobile" class="user-dropdown hidden absolute right-0 mt-2 w-48 bg-white text-sumi rounded-xl shadow-xl border border-stoneWarm py-1.5 z-50">
+                            <button type="button" onclick="exportBackupJson(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-download text-indigoSake w-4 text-center"></i><span>備份酒單</span>
+                            </button>
+                            <button type="button" onclick="triggerImportBackup(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-upload text-indigoSake w-4 text-center"></i><span>上傳 / 還原酒單</span>
+                            </button>
+                            <div class="my-1 border-t border-stoneWarm"></div>
+                            <button type="button" onclick="signOutGoogle(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-right-from-bracket w-4 text-center"></i><span>登出 Google 帳號</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- 第二列（手機版主要操作列）/ 桌面版右側操作區 -->
-            <div class="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2.5 shrink-0 pt-0.5 sm:pt-0 border-t border-white/10 sm:border-t-0">
+            <div class="flex items-center justify-end gap-1.5 sm:gap-2.5 shrink-0 pt-0.5 sm:pt-0 border-t border-white/10 sm:border-t-0">
                 <div id="cloudStatus" class="hidden xl:flex items-center space-x-1.5 text-xs bg-white/10 px-3 py-1.5 rounded-full border border-white/15">
                     <span id="cloudDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
                     <span id="cloudText">本機模式</span>
                 </div>
 
-                <!-- 桌面版 Google 登入 / 會員狀態 -->
+                <!-- 桌面版 Google 登入 / 會員名稱整合選單 -->
                 <div id="authActionContainer" class="hidden sm:flex items-center">
-                    <button type="button" id="googleLoginBtn" onclick="signInWithGoogle()" class="px-3 py-2 rounded-xl text-sm font-medium bg-white text-sumi hover:bg-slate-100 shadow-sm transition inline-flex items-center">
-                        <i class="fa-brands fa-google text-red-500 mr-1.5"></i><span>Google 登入</span>
-                    </button>
-                    <div id="userProfileBadge" class="hidden items-center space-x-2 bg-white/15 border border-white/20 pl-2 pr-2.5 py-1 rounded-xl">
-                        <img id="userAvatar" src="" alt="頭像" class="w-6 h-6 rounded-full object-cover border border-white/40 hidden">
-                        <span id="userDisplayName" class="text-xs font-medium text-white max-w-[84px] truncate"></span>
-                        <button type="button" onclick="signOutGoogle()" title="登出 Google 帳號" class="text-xs text-slate-200 hover:text-white pl-1 border-l border-white/20">
-                            <i class="fa-solid fa-right-from-bracket"></i>
+                    <div id="localAuthWrapDesktop" class="flex items-center space-x-1.5">
+                        <button type="button" id="googleLoginBtn" onclick="signInWithGoogle()" class="px-3 py-2 rounded-xl text-sm font-medium bg-white text-sumi hover:bg-slate-100 shadow-sm transition inline-flex items-center">
+                            <i class="fa-brands fa-google text-red-500 mr-1.5"></i><span>Google 登入</span>
                         </button>
+                        <div class="relative">
+                            <button type="button" onclick="toggleUserMenu('localMenuDropdownDesktop', event)" title="酒單備份與還原" class="px-2.5 py-2 rounded-xl text-sm bg-white/15 hover:bg-white/25 text-white border border-white/20 transition inline-flex items-center">
+                                <i class="fa-solid fa-ellipsis-vertical"></i>
+                            </button>
+                            <div id="localMenuDropdownDesktop" class="user-dropdown hidden absolute right-0 mt-2 w-48 bg-white text-sumi rounded-xl shadow-xl border border-stoneWarm py-1.5 z-50">
+                                <button type="button" onclick="exportBackupJson(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                    <i class="fa-solid fa-download text-indigoSake w-4 text-center"></i><span>備份酒單</span>
+                                </button>
+                                <button type="button" onclick="triggerImportBackup(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                    <i class="fa-solid fa-upload text-indigoSake w-4 text-center"></i><span>上傳 / 還原酒單</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="userProfileBadge" class="hidden relative">
+                        <button type="button" onclick="toggleUserMenu('userMenuDropdownDesktop', event)" class="flex items-center space-x-2 bg-white/15 hover:bg-white/25 border border-white/20 pl-2 pr-3 py-1.5 rounded-xl transition">
+                            <img id="userAvatar" src="" alt="頭像" class="w-6 h-6 rounded-full object-cover border border-white/40 hidden">
+                            <span id="userDisplayName" class="text-xs font-medium text-white max-w-[96px] truncate"></span>
+                            <i class="fa-solid fa-chevron-down text-[10px] text-slate-200"></i>
+                        </button>
+                        <div id="userMenuDropdownDesktop" class="user-dropdown hidden absolute right-0 mt-2 w-48 bg-white text-sumi rounded-xl shadow-xl border border-stoneWarm py-1.5 z-50">
+                            <button type="button" onclick="exportBackupJson(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-download text-indigoSake w-4 text-center"></i><span>備份酒單</span>
+                            </button>
+                            <button type="button" onclick="triggerImportBackup(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-washi flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-upload text-indigoSake w-4 text-center"></i><span>上傳 / 還原酒單</span>
+                            </button>
+                            <div class="my-1 border-t border-stoneWarm"></div>
+                            <button type="button" onclick="signOutGoogle(); closeAllUserMenus();" class="w-full text-left px-3.5 py-2.5 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center space-x-2.5 transition">
+                                <i class="fa-solid fa-right-from-bracket w-4 text-center"></i><span>登出 Google 帳號</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 備份與還原按鈕 -->
-                <div class="flex items-center space-x-1.5">
-                    <button type="button" onclick="exportBackupJson()" title="匯出備份檔" class="min-h-[38px] px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white/15 hover:bg-white/25 text-white border border-white/20 transition inline-flex items-center">
-                        <i class="fa-solid fa-download mr-1"></i><span>備份</span>
-                    </button>
-                    <label title="匯入備份檔" class="cursor-pointer min-h-[38px] px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white/15 hover:bg-white/25 text-white border border-white/20 transition inline-flex items-center">
-                        <i class="fa-solid fa-upload mr-1"></i><span>還原</span>
-                        <input type="file" id="importBackupInput" accept=".json,application/json" onchange="importBackupJson(event)" class="hidden">
-                    </label>
-                </div>
-
                 <!-- 酒單與新增品飲切換鈕 -->
-                <div class="flex items-center space-x-1.5">
+                <div class="flex items-center space-x-1.5 w-full sm:w-auto justify-end">
                     <button type="button" onclick="switchView('list')" id="navListBtn" class="min-h-[38px] px-3 sm:px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-white text-indigoSake shadow transition">
                         <i class="fa-solid fa-book-open mr-1"></i>酒單 (<span id="sakeCountBadge">0</span>)
                     </button>
@@ -296,12 +344,17 @@
 
                         <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
                             <label class="cursor-pointer min-h-[42px] px-3.5 py-2.5 bg-white hover:bg-stoneWarm/40 text-indigoSake border border-indigoSake/30 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
-                                <i class="fa-solid fa-camera-retro mr-1.5"></i>上傳 / 拍照
+                                <i class="fa-regular fa-images mr-1.5"></i>相片庫
                                 <input type="file" id="labelFileInput" accept="image/*" multiple onchange="handleImageUpload(event)" class="hidden">
                             </label>
 
+                            <label class="cursor-pointer min-h-[42px] px-3.5 py-2.5 bg-white hover:bg-stoneWarm/40 text-indigoSake border border-indigoSake/30 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
+                                <i class="fa-solid fa-camera mr-1.5"></i>拍照
+                                <input type="file" id="cameraFileInput" accept="image/*" capture="environment" onchange="handleImageUpload(event)" class="hidden">
+                            </label>
+
                             <button type="button" id="aiRecognizeBtn" onclick="recognizeSakeLabel()" disabled
-                                class="min-h-[42px] px-3.5 py-2.5 bg-indigoSake disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
+                                class="col-span-2 sm:col-span-1 min-h-[42px] px-3.5 py-2.5 bg-indigoSake disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
                                 <i class="fa-solid fa-sparkles mr-1.5"></i>
                                 <span id="aiBtnText">AI 辨識填表</span>
                             </button>
@@ -414,28 +467,28 @@
                             <span>五維風味光譜與感官筆記</span>
                         </h3>
 
-                        <!-- 五維風味雷達互動區 -->
+                        <!-- 五維風味雷達互動區（支援 0-5 分） -->
                         <div class="bg-washi rounded-2xl p-3.5 sm:p-4 border border-stoneWarm grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
                             <div class="space-y-3 text-xs">
                                 <div>
                                     <div class="flex justify-between mb-1"><span class="font-medium text-sumi">香氣華麗度</span><span id="valAroma" class="font-bold text-indigoSake">3</span></div>
-                                    <input type="range" id="radarAroma" min="1" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
+                                    <input type="range" id="radarAroma" min="0" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
                                 </div>
                                 <div>
                                     <div class="flex justify-between mb-1"><span class="font-medium text-sumi">甘甜度</span><span id="valSweetness" class="font-bold text-indigoSake">3</span></div>
-                                    <input type="range" id="radarSweetness" min="1" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
+                                    <input type="range" id="radarSweetness" min="0" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
                                 </div>
                                 <div>
                                     <div class="flex justify-between mb-1"><span class="font-medium text-sumi">酸度明亮感</span><span id="valAcidityScore" class="font-bold text-indigoSake">3</span></div>
-                                    <input type="range" id="radarAcidityScore" min="1" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
+                                    <input type="range" id="radarAcidityScore" min="0" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
                                 </div>
                                 <div>
                                     <div class="flex justify-between mb-1"><span class="font-medium text-sumi">旨味 / 醇厚度</span><span id="valUmami" class="font-bold text-indigoSake">3</span></div>
-                                    <input type="range" id="radarUmami" min="1" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
+                                    <input type="range" id="radarUmami" min="0" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
                                 </div>
                                 <div>
                                     <div class="flex justify-between mb-1"><span class="font-medium text-sumi">辛口 / 尾韻俐落</span><span id="valDryness" class="font-bold text-indigoSake">3</span></div>
-                                    <input type="range" id="radarDryness" min="1" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
+                                    <input type="range" id="radarDryness" min="0" max="5" value="3" oninput="updateFormRadar()" class="w-full h-2 accent-indigoSake">
                                 </div>
                             </div>
                             <div class="flex flex-col items-center justify-center py-2">
@@ -662,6 +715,35 @@
             }
         }
 
+        function closeAllUserMenus() {
+            document.querySelectorAll(".user-dropdown").forEach((el) => el.classList.add("hidden"));
+        }
+
+        function toggleUserMenu(menuId, event) {
+            if (event) event.stopPropagation();
+            const target = document.getElementById(menuId);
+            if (!target) return;
+            const willOpen = target.classList.contains("hidden");
+            closeAllUserMenus();
+            if (willOpen) {
+                target.classList.remove("hidden");
+            }
+        }
+
+        function triggerImportBackup() {
+            const input = document.getElementById("importBackupInput");
+            if (input) input.click();
+        }
+
+        document.addEventListener("click", (event) => {
+            if (!event.target.closest("#userProfileBadge") &&
+                !event.target.closest("#userProfileBadgeMobile") &&
+                !event.target.closest("#localAuthWrapDesktop") &&
+                !event.target.closest("#localAuthWrapMobile")) {
+                closeAllUserMenus();
+            }
+        });
+
         // ==================== 4. 視圖切換與星等 / 溫度互動 ====================
         function switchView(view) {
             const listView = document.getElementById("listView");
@@ -741,6 +823,13 @@
         }
 
         // ==================== 5. 五維風味雷達圖 SVG 繪製 ====================
+        function getRadarInputVal(id) {
+            const el = document.getElementById(id);
+            if (!el || el.value === "") return 3;
+            const n = Number(el.value);
+            return Number.isNaN(n) ? 3 : Math.min(5, Math.max(0, n));
+        }
+
         function buildRadarSvg(scores, size = 180) {
             const labels = ["香氣", "甘甜", "酸度", "旨味", "辛口"];
             const keys = ["aroma", "sweetness", "acidityScore", "umami", "dryness"];
@@ -775,8 +864,9 @@
                 const ly = cy + labelR * Math.sin(ang) + 4;
                 labelTexts += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="10" fill="#475569" font-weight="600">${labels[i]}</text>`;
 
-                const rawVal = Number(scores?.[keys[i]]) || 3;
-                const clamped = Math.min(5, Math.max(1, rawVal));
+                const rawVal = scores?.[keys[i]];
+                const parsedVal = (rawVal === undefined || rawVal === null || rawVal === "") ? 3 : Number(rawVal);
+                const clamped = Number.isNaN(parsedVal) ? 3 : Math.min(5, Math.max(0, parsedVal));
                 const vr = (maxR / 5) * clamped;
                 valuePts.push(`${(cx + vr * Math.cos(ang)).toFixed(1)},${(cy + vr * Math.sin(ang)).toFixed(1)}`);
             }
@@ -791,11 +881,11 @@
 
         function updateFormRadar() {
             const scores = {
-                aroma: Number(document.getElementById("radarAroma")?.value || 3),
-                sweetness: Number(document.getElementById("radarSweetness")?.value || 3),
-                acidityScore: Number(document.getElementById("radarAcidityScore")?.value || 3),
-                umami: Number(document.getElementById("radarUmami")?.value || 3),
-                dryness: Number(document.getElementById("radarDryness")?.value || 3)
+                aroma: getRadarInputVal("radarAroma"),
+                sweetness: getRadarInputVal("radarSweetness"),
+                acidityScore: getRadarInputVal("radarAcidityScore"),
+                umami: getRadarInputVal("radarUmami"),
+                dryness: getRadarInputVal("radarDryness")
             };
             document.getElementById("valAroma").textContent = scores.aroma;
             document.getElementById("valSweetness").textContent = scores.sweetness;
@@ -936,11 +1026,11 @@
   "taste": "甘辛與旨味表現（繁體中文，頓號分隔）",
   "notes": "簡短品飲與搭餐建議（繁體中文，50字內）",
   "radar": {
-    "aroma": 1到5整數,
-    "sweetness": 1到5整數,
-    "acidityScore": 1到5整數,
-    "umami": 1到5整數,
-    "dryness": 1到5整數
+    "aroma": 0到5整數,
+    "sweetness": 0到5整數,
+    "acidityScore": 0到5整數,
+    "umami": 0到5整數,
+    "dryness": 0到5整數
   }
 }`;
 
@@ -1059,7 +1149,11 @@
                 if (parsed.notes) document.getElementById("notes").value = parsed.notes;
 
                 if (parsed.radar) {
-                    const clampScore = (v) => Math.min(5, Math.max(1, Math.round(Number(v) || 3)));
+                    const clampScore = (v) => {
+                        if (v === undefined || v === null || v === "") return 3;
+                        const n = Math.round(Number(v));
+                        return Number.isNaN(n) ? 3 : Math.min(5, Math.max(0, n));
+                    };
                     document.getElementById("radarAroma").value = clampScore(parsed.radar.aroma);
                     document.getElementById("radarSweetness").value = clampScore(parsed.radar.sweetness);
                     document.getElementById("radarAcidityScore").value = clampScore(parsed.radar.acidityScore);
@@ -1127,11 +1221,11 @@
             document.getElementById("notes").value = log.notes || "";
 
             const radar = log.radar || {};
-            document.getElementById("radarAroma").value = radar.aroma || 3;
-            document.getElementById("radarSweetness").value = radar.sweetness || 3;
-            document.getElementById("radarAcidityScore").value = radar.acidityScore || 3;
-            document.getElementById("radarUmami").value = radar.umami || 3;
-            document.getElementById("radarDryness").value = radar.dryness || 3;
+            document.getElementById("radarAroma").value = radar.aroma ?? 3;
+            document.getElementById("radarSweetness").value = radar.sweetness ?? 3;
+            document.getElementById("radarAcidityScore").value = radar.acidityScore ?? 3;
+            document.getElementById("radarUmami").value = radar.umami ?? 3;
+            document.getElementById("radarDryness").value = radar.dryness ?? 3;
             updateFormRadar();
 
             uploadedImages = Array.isArray(log.images) ? [...log.images] : (log.image ? [log.image] : []);
@@ -1165,11 +1259,11 @@
                 taste: document.getElementById("taste").value.trim(),
                 notes: document.getElementById("notes").value.trim(),
                 radar: {
-                    aroma: Number(document.getElementById("radarAroma").value) || 3,
-                    sweetness: Number(document.getElementById("radarSweetness").value) || 3,
-                    acidityScore: Number(document.getElementById("radarAcidityScore").value) || 3,
-                    umami: Number(document.getElementById("radarUmami").value) || 3,
-                    dryness: Number(document.getElementById("radarDryness").value) || 3
+                    aroma: getRadarInputVal("radarAroma"),
+                    sweetness: getRadarInputVal("radarSweetness"),
+                    acidityScore: getRadarInputVal("radarAcidityScore"),
+                    umami: getRadarInputVal("radarUmami"),
+                    dryness: getRadarInputVal("radarDryness")
                 },
                 images: [...uploadedImages],
                 updatedAt: nowIso
@@ -1522,15 +1616,16 @@
 
         // ==================== 11. Firebase 雲端登入與即時同步 ====================
         function updateAuthUi(user) {
+            closeAllUserMenus();
             const cloudDot = document.getElementById("cloudDot");
             const cloudText = document.getElementById("cloudText");
 
-            const loginBtn = document.getElementById("googleLoginBtn");
+            const localWrapDesktop = document.getElementById("localAuthWrapDesktop");
             const profileBadge = document.getElementById("userProfileBadge");
             const avatar = document.getElementById("userAvatar");
             const displayName = document.getElementById("userDisplayName");
 
-            const loginBtnM = document.getElementById("googleLoginBtnMobile");
+            const localWrapMobile = document.getElementById("localAuthWrapMobile");
             const profileBadgeM = document.getElementById("userProfileBadgeMobile");
             const avatarM = document.getElementById("userAvatarMobile");
             const displayNameM = document.getElementById("userDisplayNameMobile");
@@ -1539,14 +1634,12 @@
                 cloudDot.className = "w-2 h-2 rounded-full bg-emerald-400";
                 cloudText.textContent = "雲端同步中";
 
-                loginBtn.classList.add("hidden");
+                localWrapDesktop.classList.add("hidden");
                 profileBadge.classList.remove("hidden");
-                profileBadge.classList.add("flex");
                 displayName.textContent = user.displayName || user.email || "會員";
 
-                loginBtnM.classList.add("hidden");
+                localWrapMobile.classList.add("hidden");
                 profileBadgeM.classList.remove("hidden");
-                profileBadgeM.classList.add("flex");
                 displayNameM.textContent = user.displayName || user.email || "會員";
 
                 if (user.photoURL) {
@@ -1559,13 +1652,11 @@
                 cloudDot.className = "w-2 h-2 rounded-full bg-amber-400";
                 cloudText.textContent = "本機模式";
 
-                loginBtn.classList.remove("hidden");
+                localWrapDesktop.classList.remove("hidden");
                 profileBadge.classList.add("hidden");
-                profileBadge.classList.remove("flex");
 
-                loginBtnM.classList.remove("hidden");
+                localWrapMobile.classList.remove("hidden");
                 profileBadgeM.classList.add("hidden");
-                profileBadgeM.classList.remove("flex");
             }
         }
 
@@ -1638,6 +1729,9 @@
         // ==================== 12. 掛載全域函式並啟動應用 ====================
         Object.assign(window, {
             copyCurrentUrl,
+            toggleUserMenu,
+            closeAllUserMenus,
+            triggerImportBackup,
             signInWithGoogle,
             signOutGoogle,
             exportBackupJson,
