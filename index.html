@@ -344,17 +344,12 @@
 
                         <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
                             <label class="cursor-pointer min-h-[42px] px-3.5 py-2.5 bg-white hover:bg-stoneWarm/40 text-indigoSake border border-indigoSake/30 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
-                                <i class="fa-regular fa-images mr-1.5"></i>相片庫
+                                <i class="fa-solid fa-camera mr-1.5"></i>相片庫 / 拍照
                                 <input type="file" id="labelFileInput" accept="image/*" multiple onchange="handleImageUpload(event)" class="hidden">
                             </label>
 
-                            <label class="cursor-pointer min-h-[42px] px-3.5 py-2.5 bg-white hover:bg-stoneWarm/40 text-indigoSake border border-indigoSake/30 rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
-                                <i class="fa-solid fa-camera mr-1.5"></i>拍照
-                                <input type="file" id="cameraFileInput" accept="image/*" capture="environment" onchange="handleImageUpload(event)" class="hidden">
-                            </label>
-
                             <button type="button" id="aiRecognizeBtn" onclick="recognizeSakeLabel()" disabled
-                                class="col-span-2 sm:col-span-1 min-h-[42px] px-3.5 py-2.5 bg-indigoSake disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
+                                class="min-h-[42px] px-3.5 py-2.5 bg-indigoSake disabled:bg-slate-300 disabled:cursor-not-allowed hover:bg-slate-800 text-white rounded-xl text-xs sm:text-sm font-medium shadow-sm transition inline-flex items-center justify-center">
                                 <i class="fa-solid fa-sparkles mr-1.5"></i>
                                 <span id="aiBtnText">AI 辨識填表</span>
                             </button>
