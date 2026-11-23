@@ -407,16 +407,16 @@
                                 <option value="特別純米酒">特別純米酒</option>
                                 <option value="純米酒">純米酒</option>
                                 <option value="本釀造">本釀造</option>
+                                <option value="生酒 / 原酒">生酒 / 原酒</option>
+                                <option value="濁酒 / 氣泡清酒">濁酒 / 氣泡清酒</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+
                         <div class="min-w-0">
                             <label class="block text-xs font-bold text-sumi mb-1.5">開瓶 / 品飲日期</label>
                             <input type="date" id="openDate"
                                 class="block w-full max-w-full min-w-0 px-3.5 py-2.5 bg-washi border border-stoneWarm rounded-xl text-base sm:text-sm text-left appearance-none focus:outline-none focus:border-indigoSake">
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-bold text-sumi mb-1.5">開瓶 / 品飲日期</label>
-                            <input type="date" id="openDate"
-                                class="w-full px-3.5 py-2.5 bg-washi border border-stoneWarm rounded-xl text-base sm:text-sm focus:outline-none focus:border-indigoSake">
                         </div>
 
                         <div>
@@ -427,7 +427,7 @@
                     </div>
 
                     <!-- 清酒專業規格 -->
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4 pt-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 pt-1">
                         <div>
                             <label class="block text-xs font-bold text-sumi mb-1.5">產地（都道府縣）</label>
                             <input type="text" id="prefecture" list="prefectureList" placeholder="例如：山口縣、山形縣、新潟縣"
@@ -450,6 +450,11 @@
                         <div>
                             <label class="block text-xs font-bold text-sumi mb-1.5">精米步合 (%)</label>
                             <input type="text" id="polishingRatio" placeholder="例如：50% 或 23%"
+                                class="w-full px-3.5 py-2.5 bg-washi border border-stoneWarm rounded-xl text-base sm:text-sm focus:outline-none focus:border-indigoSake">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-sumi mb-1.5">酒精度 (%)</label>
+                            <input type="text" id="alcoholContent" placeholder="例如：15% 或 16%"
                                 class="w-full px-3.5 py-2.5 bg-washi border border-stoneWarm rounded-xl text-base sm:text-sm focus:outline-none focus:border-indigoSake">
                         </div>
                     </div>
@@ -908,7 +913,7 @@
         }
 
         // ==================== 6. 圖片壓縮上傳與預覽管理 ====================
-        function compressImageFile(file, maxDim = 1024, quality = 0.78) {
+        function compressImageFile(file, maxDim = 960, quality = 0.75) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = (e) => {
@@ -1017,8 +1022,7 @@
             const btnText = document.getElementById("aiBtnText");
             btn.disabled = true;
             btnText.textContent = "AI 解析中...";
-
-            const promptText = `你是一位專業的日本清酒唎酒師（Sake Sommelier）。請仔細判讀使用者上傳的清酒正標與背標照片，綜合所有文字與資訊，以純 JSON 格式回傳以下欄位（若照片未標示該資訊，請依該銘柄的公開釀造特性合理推估，無法判斷則留空字串）：
+            const promptText = `你是一位專業的日本清酒唎酒師（Sake Sommelier）。請仔細判讀使用者上傳的清酒正標與背標照片，綜合所有文字與資訊，以純 JSON 格式回傳以下欄位（若照片未標示該資訊，請依該銘柄的公開釀造特性與官方規格合理查詢推估，無法判斷則留空字串）：
 {
   "sakeName": "清酒完整銘柄名稱（繁體中文）",
   "brewery": "酒造名稱（繁體中文）",
@@ -1026,6 +1030,7 @@
   "prefecture": "日本產地都道府縣（例如：山口縣、山形縣）",
   "riceType": "使用酒米（例如：山田錦、雄町、五百萬石）",
   "polishingRatio": "精米步合百分比（例如：50% 或 23%）",
+  "alcoholContent": "酒精濃度（例如：15% 或 16%，若酒標未標示請依該銘柄公開資料查詢推估）",
   "servingTemp": "建議品飲溫度（從以下擇一：雪冷え (5°C)、花冷え (10°C)、涼冷え (15°C)、常溫 (20°C)、ぬる燗 (40°C)、熱燗 (50°C)）",
   "sakeColor": "推測酒液外觀顏色（例如：無色透明、晶瑩剔透）",
   "acidity": "從以下擇一：低（柔和圓潤）、適中（平衡順口）、偏高（清爽俐落）、高酸（酸甜明亮）",
@@ -1124,12 +1129,16 @@
                 for (const ep of endpoints) {
                     const maxAttempts = 2;
                     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 25000);
                         try {
                             const res = await fetch(ep.url, {
                                 method: "POST",
                                 headers: ep.headers,
-                                body: JSON.stringify(payload)
+                                body: JSON.stringify(payload),
+                                signal: controller.signal
                             });
+                            clearTimeout(timeoutId);
                             const data = await res.json();
                             if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
                                 responseJson = data;
@@ -1142,13 +1151,14 @@
                                     /high demand|overloaded|unavailable|try again/i.test(lastErrorMsg);
                                 if (isTemporaryBusy && attempt < maxAttempts) {
                                     btnText.textContent = "AI 尖峰重試中...";
-                                    await waitMs(1500);
+                                    await waitMs(1800);
                                     continue;
                                 }
                                 break;
                             }
                         } catch (fetchErr) {
-                            lastErrorMsg = fetchErr.message || "網路連線中斷";
+                            clearTimeout(timeoutId);
+                            lastErrorMsg = fetchErr.name === "AbortError" ? "連線逾時（請確認網路狀態）" : (fetchErr.message || "網路連線中斷");
                             if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
                             if (attempt < maxAttempts) {
                                 btnText.textContent = "連線重試中...";
@@ -1181,6 +1191,7 @@
                 if (parsed.prefecture) document.getElementById("prefecture").value = parsed.prefecture;
                 if (parsed.riceType) document.getElementById("riceType").value = parsed.riceType;
                 if (parsed.polishingRatio) document.getElementById("polishingRatio").value = parsed.polishingRatio;
+                if (parsed.alcoholContent) document.getElementById("alcoholContent").value = parsed.alcoholContent;
                 if (parsed.servingTemp) syncTempChipByText(parsed.servingTemp);
                 if (parsed.sakeColor) document.getElementById("sakeColor").value = parsed.sakeColor;
                 if (parsed.acidity) {
@@ -1257,6 +1268,7 @@
             document.getElementById("prefecture").value = log.prefecture || "";
             document.getElementById("riceType").value = log.riceType || "";
             document.getElementById("polishingRatio").value = log.polishingRatio || "";
+            document.getElementById("alcoholContent").value = log.alcoholContent || "";
             syncTempChipByText(log.servingTemp || "花冷え (10°C)");
             document.getElementById("sakeColor").value = log.sakeColor || "";
             document.getElementById("acidity").value = log.acidity || "適中（平衡順口）";
@@ -1296,6 +1308,7 @@
                 prefecture: document.getElementById("prefecture").value.trim(),
                 riceType: document.getElementById("riceType").value.trim(),
                 polishingRatio: document.getElementById("polishingRatio").value.trim(),
+                alcoholContent: document.getElementById("alcoholContent").value.trim(),
                 servingTemp: document.getElementById("servingTemp").value.trim(),
                 sakeColor: document.getElementById("sakeColor").value.trim(),
                 acidity: document.getElementById("acidity").value,
@@ -1402,7 +1415,7 @@
                 if (keyword) {
                     const haystack = [
                         item.sakeName, item.brewery, item.sakeType, item.prefecture,
-                        item.riceType, item.flavor, item.mouthfeel, item.taste, item.notes
+                        item.riceType, item.alcoholContent, item.flavor, item.mouthfeel, item.taste, item.notes
                     ].join(" ").toLowerCase();
                     if (!haystack.includes(keyword)) return false;
                 }
@@ -1433,7 +1446,7 @@
             grid.innerHTML = filtered.map((item) => {
                 const cover = (Array.isArray(item.images) && item.images[0]) || item.image || "";
                 const stars = "★".repeat(Number(item.rating) || 0) + "☆".repeat(5 - (Number(item.rating) || 0));
-                const metaTags = [item.prefecture, item.riceType, item.polishingRatio].filter(Boolean);
+                const metaTags = [item.prefecture, item.riceType, item.polishingRatio, item.alcoholContent ? `酒精度 ${item.alcoholContent}` : ""].filter(Boolean);
 
                 return `
                 <article onclick="openDetailModal('${escapeHtml(item.id)}')" class="washi-card rounded-2xl p-3.5 sm:p-4 flex gap-3.5 cursor-pointer hover:border-indigoSake/40 hover:shadow-md transition active:scale-[0.99]">
@@ -1505,7 +1518,9 @@
                     <div><span class="text-slate-400 block">整體評價</span><span class="text-amber-500 text-sm">${stars}</span></div>
                     <div><span class="text-slate-400 block">品飲溫度</span><span class="font-medium text-sumi">${escapeHtml(log.servingTemp || "-")}</span></div>
                     <div><span class="text-slate-400 block">產地</span><span class="font-medium text-sumi">${escapeHtml(log.prefecture || "-")}</span></div>
-                    <div><span class="text-slate-400 block">酒米 / 精米步合</span><span class="font-medium text-sumi">${escapeHtml([log.riceType, log.polishingRatio].filter(Boolean).join(" / ") || "-")}</span></div>
+                    <div><span class="text-slate-400 block">酒精度</span><span class="font-medium text-sumi">${escapeHtml(log.alcoholContent || "-")}</span></div>
+                    <div><span class="text-slate-400 block">使用酒米</span><span class="font-medium text-sumi">${escapeHtml(log.riceType || "-")}</span></div>
+                    <div><span class="text-slate-400 block">精米步合</span><span class="font-medium text-sumi">${escapeHtml(log.polishingRatio || "-")}</span></div>
                     <div><span class="text-slate-400 block">酒液外觀</span><span class="font-medium text-sumi">${escapeHtml(log.sakeColor || "-")}</span></div>
                     <div><span class="text-slate-400 block">酸度表現</span><span class="font-medium text-sumi">${escapeHtml(log.acidity || "-")}</span></div>
                 </div>
