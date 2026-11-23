@@ -1157,72 +1157,108 @@
                 }
             };
 
-            const isPreviewEnv = (window.location.hostname || "").includes("usercontent.goog");
+            // 修正 blob:https://...usercontent.goog 預覽環境下 hostname 為空字串導致誤判的問題
+            const currentLocationText = `${window.location.href || ""} ${window.location.origin || ""} ${window.location.hostname || ""}`;
+            const isPreviewEnv = /usercontent\.goog/i.test(currentLocationText);
+
+            const sakeKeyEndpoints = [
+                // 1. 第一順位：高免費配額、低延遲多模態模型（免綁卡）
+                {
+                    label: "3.5-flash-lite",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                },
+                // 2. 第二順位：Gemini 3.6 Flash 免費版模型（免綁卡）
+                {
+                    label: "3.6-flash",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                },
+                // 3. 第三順位：Gemini 4 Hydrogen 免費版模型（免綁卡）
+                {
+                    label: "4-hydrogen",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                },
+                // 4. 第四順位：Gemini 3.1 Flash-Lite（獨立免費額度，免綁卡）
+                {
+                    label: "3.1-flash-lite",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                },
+                // 5. 第五順位：Gemini 3 Flash Preview（獨立免費額度，免綁卡）
+                {
+                    label: "3-flash-preview",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                },
+                // 6. 第六順位：Gemini 3.8 Flash（獨立免費額度，免綁卡）
+                {
+                    label: "3.8-flash",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": GEMINI_API_KEY
+                    }
+                }
+            ];
+
+            const previewEndpoints = [
+                {
+                    label: "preview-3.5-lite",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=",
+                    headers: { "Content-Type": "application/json" }
+                },
+                {
+                    label: "preview-3-flash",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=",
+                    headers: { "Content-Type": "application/json" }
+                },
+                {
+                    label: "preview-2.5-flash",
+                    url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=",
+                    headers: { "Content-Type": "application/json" }
+                }
+            ];
+
             const endpoints = isPreviewEnv
-                ? [
-                    {
-                        label: "preview",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=",
-                        headers: { "Content-Type": "application/json" }
-                    }
-                ]
-                : [
-                    // 1. 第一順位：高免費配額、低延遲多模態模型（免綁卡）
-                    {
-                        label: "3.5-flash-lite",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 2. 第二順位：Gemini 4 Hydrogen 免費版模型（免綁卡）
-                    {
-                        label: "4-hydrogen",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 3. 第三順位：Gemini 3.1 Flash-Lite（獨立免費額度，免綁卡）
-                    {
-                        label: "3.1-flash-lite",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 4. 第四順位：Gemini 3.8 Flash（獨立免費額度，免綁卡）
-                    {
-                        label: "3.8-flash",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": GEMINI_API_KEY
-                        }
-                    },
-                    // 5. 第五順位：同專案傳統 AIzaSy 金鑰備援（免綁卡）
-                    {
-                        label: "3.5-lite-alt",
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": defaultFirebaseConfig.apiKey
-                        }
-                    }
-                ];
+                ? [...previewEndpoints, ...sakeKeyEndpoints]
+                : sakeKeyEndpoints;
 
             const waitMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
             try {
                 let responseJson = null;
-                const errorDetails = [];
+                const endpointStatus = new Map();
+                const permanentSkip = new Set();
+                const maxRounds = 2;
 
-                for (const ep of endpoints) {
-                    const maxAttempts = 2;
-                    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                for (let round = 1; round <= maxRounds; round++) {
+                    if (round > 1) {
+                        btnText.textContent = "AI 尖峰排隊重試中...";
+                        await waitMs(2600);
+                    }
+
+                    let hadTransientErrorThisRound = false;
+
+                    for (const ep of endpoints) {
+                        if (permanentSkip.has(ep.label)) continue;
+
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), 35000);
                         try {
@@ -1234,45 +1270,58 @@
                             });
                             clearTimeout(timeoutId);
                             const data = await res.json();
+
                             if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
                                 responseJson = data;
                                 break;
-                            } else {
-                                const errMsg = data?.error?.message || `HTTP ${res.status}`;
-                                const isQuotaExceeded = res.status === 429 || /quota|rate.?limit|exceeded/i.test(errMsg);
-                                if (isQuotaExceeded) {
-                                    errorDetails.push(`${ep.label}[今日額度已滿]`);
-                                    btnText.textContent = "切換備援模型中...";
-                                    break;
-                                }
+                            }
 
-                                const isTemporaryBusy = res.status === 503 ||
-                                    /high demand|overloaded|unavailable|try again/i.test(errMsg);
-                                if (isTemporaryBusy && attempt < maxAttempts) {
-                                    btnText.textContent = "AI 尖峰重試中...";
-                                    await waitMs(1800);
-                                    continue;
-                                }
-                                errorDetails.push(`${ep.label}[${errMsg.slice(0, 70)}]`);
-                                break;
+                            const errMsg = data?.error?.message || `HTTP ${res.status}`;
+                            const isQuotaExceeded = res.status === 429 || /quota|rate.?limit|exceeded/i.test(errMsg);
+                            const isTemporaryBusy = res.status === 503 || res.status === 500 ||
+                                /high demand|overloaded|unavailable|try again/i.test(errMsg);
+
+                            if (isQuotaExceeded) {
+                                permanentSkip.add(ep.label);
+                                endpointStatus.set(ep.label, { type: "quota", msg: "今日額度已滿" });
+                                btnText.textContent = "切換備援模型中...";
+                            } else if (isTemporaryBusy) {
+                                hadTransientErrorThisRound = true;
+                                endpointStatus.set(ep.label, { type: "busy", msg: "伺服器尖峰擁塞" });
+                                btnText.textContent = "切換備援模型中...";
+                            } else {
+                                // 400 / 401 / 403 / 404 等非暫時性錯誤，下一輪直接跳過
+                                permanentSkip.add(ep.label);
+                                endpointStatus.set(ep.label, { type: "other", msg: errMsg.slice(0, 70) });
                             }
                         } catch (fetchErr) {
                             clearTimeout(timeoutId);
+                            hadTransientErrorThisRound = true;
                             const errMsg = fetchErr.name === "AbortError" ? "連線逾時" : (fetchErr.message || "網路中斷");
-                            if (attempt < maxAttempts) {
-                                btnText.textContent = "連線重試中...";
-                                await waitMs(1200);
-                                continue;
-                            }
-                            errorDetails.push(`${ep.label}[${errMsg}]`);
-                            break;
+                            endpointStatus.set(ep.label, { type: "busy", msg: errMsg });
                         }
                     }
-                    if (responseJson) break;
+
+                    if (responseJson || !hadTransientErrorThisRound) break;
                 }
 
                 if (!responseJson) {
-                    throw new Error(errorDetails.join(" / ") || "無法連線至 Gemini AI 服務");
+                    const statuses = Array.from(endpointStatus.entries());
+                    const hasBusy = statuses.some(([, st]) => st.type === "busy");
+                    const allQuota = statuses.length > 0 && statuses.every(([, st]) => st.type === "quota");
+                    const summary = statuses.map(([label, st]) => `${label}[${st.msg}]`).join(" / ");
+
+                    if (hasBusy) {
+                        console.warn("AI Service Temporarily Busy:", summary);
+                        showToast("Google AI 免費伺服器目前正處於尖峰擁塞（High Demand），請稍候 15～30 秒後再試一次！", true);
+                        return;
+                    }
+                    if (allQuota) {
+                        console.warn("AI Free Quota Exhausted:", summary);
+                        showToast("今日免費版 AI 辨識額度已全數用完，將於台灣時間下午 4:00 自動重置，目前仍可手動填寫儲存！", true);
+                        return;
+                    }
+                    throw new Error(summary || "無法連線至 Gemini AI 服務");
                 }
 
                 // 解析 AI 回傳的 JSON 文字並容錯去除 Markdown 程式碼圍欄
