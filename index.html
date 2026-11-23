@@ -718,8 +718,9 @@
             const chips = document.querySelectorAll(".temp-chip");
             let matched = false;
             chips.forEach((chip) => {
-                if (chip.textContent.includes(tempText) || tempText.includes(chip.textContent.replace(/^[^\s]+\s/, ""))) {
-                    selectTempChip(chip, chip.textContent.replace(/^[^\s]+\s/, ""));
+                const pureText = chip.textContent.replace(/^[^\s]+\s/, "").trim();
+                if (tempText && (chip.textContent.includes(tempText) || tempText.includes(pureText))) {
+                    selectTempChip(chip, pureText);
                     matched = true;
                 }
             });
@@ -973,18 +974,35 @@
                     }
                 ]
                 : [
+                    // 1. Google AI Studio 免費版官方標準通道（使用 x-goog-api-key 標頭傳遞 AQ. 金鑰，無需綁卡）
                     {
-                        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
-                        headers: { "Content-Type": "application/json" }
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
                     },
+                    // 2. 免費版輕量高速模型備援（同樣免綁卡）
                     {
-                        url: `https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
-                        headers: { "Content-Type": "application/json" }
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": GEMINI_API_KEY
+                        }
+                    },
+                    // 3. 同專案傳統 AIzaSy 金鑰備援（走免費版 Gemini API）
+                    {
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": defaultFirebaseConfig.apiKey
+                        }
                     }
                 ];
 
             try {
                 let responseJson = null;
+                let primaryErrorMsg = "";
                 let lastErrorMsg = "無法連線至 Gemini AI 服務";
 
                 for (const ep of endpoints) {
@@ -1000,100 +1018,115 @@
                             break;
                         } else {
                             lastErrorMsg = data?.error?.message || `HTTP ${res.status}`;
+                            if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
                         }
                     } catch (fetchErr) {
                         lastErrorMsg = fetchErr.message || "網路連線中斷";
+                        if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
                     }
                 }
 
                 if (!responseJson) {
-                    throw new Error(lastErrorMsg);
+                    throw new Error(primaryErrorMsg || lastErrorMsg);
                 }
 
-                const rawText = responseJson.candidates[0].content.parts[0].text;
-                const cleanedJsonText = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-                const parsed = JSON.parse(cleanedJsonText);
+                // 解析 AI 回傳的 JSON 文字並容錯去除 Markdown 程式碼圍欄
+                let rawText = responseJson.candidates[0].content.parts[0].text.trim();
+                rawText = rawText.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+                const parsed = JSON.parse(rawText);
 
+                // 自動填入表單欄位
                 if (parsed.sakeName) document.getElementById("sakeName").value = parsed.sakeName;
                 if (parsed.brewery) document.getElementById("brewery").value = parsed.brewery;
-                if (parsed.sakeType) document.getElementById("sakeType").value = parsed.sakeType;
+                if (parsed.sakeType) {
+                    const typeSel = document.getElementById("sakeType");
+                    const hasOpt = Array.from(typeSel.options).some((opt) => opt.value === parsed.sakeType);
+                    typeSel.value = hasOpt ? parsed.sakeType : "其他";
+                }
                 if (parsed.prefecture) document.getElementById("prefecture").value = parsed.prefecture;
                 if (parsed.riceType) document.getElementById("riceType").value = parsed.riceType;
                 if (parsed.polishingRatio) document.getElementById("polishingRatio").value = parsed.polishingRatio;
                 if (parsed.servingTemp) syncTempChipByText(parsed.servingTemp);
                 if (parsed.sakeColor) document.getElementById("sakeColor").value = parsed.sakeColor;
-                if (parsed.acidity) document.getElementById("acidity").value = parsed.acidity;
+                if (parsed.acidity) {
+                    const acidSel = document.getElementById("acidity");
+                    const hasAcid = Array.from(acidSel.options).some((opt) => opt.value === parsed.acidity);
+                    if (hasAcid) acidSel.value = parsed.acidity;
+                }
                 if (parsed.flavor) document.getElementById("flavor").value = parsed.flavor;
                 if (parsed.mouthfeel) document.getElementById("mouthfeel").value = parsed.mouthfeel;
                 if (parsed.taste) document.getElementById("taste").value = parsed.taste;
                 if (parsed.notes) document.getElementById("notes").value = parsed.notes;
 
                 if (parsed.radar) {
-                    document.getElementById("radarAroma").value = parsed.radar.aroma || 3;
-                    document.getElementById("radarSweetness").value = parsed.radar.sweetness || 3;
-                    document.getElementById("radarAcidityScore").value = parsed.radar.acidityScore || 3;
-                    document.getElementById("radarUmami").value = parsed.radar.umami || 3;
-                    document.getElementById("radarDryness").value = parsed.radar.dryness || 3;
+                    const clampScore = (v) => Math.min(5, Math.max(1, Math.round(Number(v) || 3)));
+                    document.getElementById("radarAroma").value = clampScore(parsed.radar.aroma);
+                    document.getElementById("radarSweetness").value = clampScore(parsed.radar.sweetness);
+                    document.getElementById("radarAcidityScore").value = clampScore(parsed.radar.acidityScore);
+                    document.getElementById("radarUmami").value = clampScore(parsed.radar.umami);
+                    document.getElementById("radarDryness").value = clampScore(parsed.radar.dryness);
                     updateFormRadar();
                 }
 
                 showToast("AI 酒標辨識完成，已自動填入表單！");
             } catch (err) {
                 console.error("AI Recognize Error:", err);
-                showToast(`AI 辨識失敗：${err.message}`, true);
+                const msg = String(err.message || "");
+                showToast(`AI 辨識失敗：${msg}`, true);
             } finally {
-                btn.disabled = false;
+                btn.disabled = uploadedImages.length === 0;
                 btnText.textContent = "AI 辨識填表";
             }
         }
 
-        // ==================== 8. 表單開啟、編輯與儲存邏輯 ====================
-        function openNewForm() {
+        // ==================== 8. 表單開啟、重置、儲存與編輯 ====================
+        function resetForm() {
             document.getElementById("sakeForm").reset();
             document.getElementById("editDocId").value = "";
             document.getElementById("formTitle").textContent = "新增清酒品飲紀錄";
-            document.getElementById("openDate").value = new Date().toISOString().split("T")[0];
-            uploadedImages = [];
-            renderImagePreviews();
+            document.getElementById("openDate").value = new Date().toISOString().slice(0, 10);
             renderStarSelector(4);
-            selectTempChip(document.querySelectorAll(".temp-chip")[1], "花冷え (10°C)");
+            syncTempChipByText("花冷え (10°C)");
 
-            document.getElementById("radarAroma").value = 3;
-            document.getElementById("radarSweetness").value = 3;
-            document.getElementById("radarAcidityScore").value = 3;
-            document.getElementById("radarUmami").value = 3;
-            document.getElementById("radarDryness").value = 3;
+            ["radarAroma", "radarSweetness", "radarAcidityScore", "radarUmami", "radarDryness"].forEach((id) => {
+                document.getElementById(id).value = 3;
+            });
             updateFormRadar();
 
+            uploadedImages = [];
+            renderImagePreviews();
+        }
+
+        function openNewForm() {
+            resetForm();
             switchView("form");
         }
 
-        function editSakeLog(id) {
-            const item = sakeLogs.find((log) => log.id === id);
-            if (!item) return;
+        function editSakeLog(docId) {
+            const log = sakeLogs.find((item) => item.id === docId);
+            if (!log) return;
 
             closeDetailModal();
-            document.getElementById("editDocId").value = item.id;
+            resetForm();
+            document.getElementById("editDocId").value = log.id;
             document.getElementById("formTitle").textContent = "編輯清酒品飲紀錄";
-            document.getElementById("sakeName").value = item.sakeName || "";
-            document.getElementById("brewery").value = item.brewery || "";
-            document.getElementById("sakeType").value = item.sakeType || "純米大吟釀";
-            document.getElementById("openDate").value = item.openDate || "";
-            renderStarSelector(item.rating || 4);
+            document.getElementById("sakeName").value = log.sakeName || "";
+            document.getElementById("brewery").value = log.brewery || "";
+            document.getElementById("sakeType").value = log.sakeType || "純米大吟釀";
+            document.getElementById("openDate").value = log.openDate || new Date().toISOString().slice(0, 10);
+            renderStarSelector(log.rating || 4);
+            document.getElementById("prefecture").value = log.prefecture || "";
+            document.getElementById("riceType").value = log.riceType || "";
+            document.getElementById("polishingRatio").value = log.polishingRatio || "";
+            syncTempChipByText(log.servingTemp || "花冷え (10°C)");
+            document.getElementById("sakeColor").value = log.sakeColor || "";
+            document.getElementById("acidity").value = log.acidity || "適中（平衡順口）";
+            document.getElementById("flavor").value = log.flavor || "";
+            document.getElementById("mouthfeel").value = log.mouthfeel || "";
+            document.getElementById("taste").value = log.taste || "";
+            document.getElementById("notes").value = log.notes || "";
 
-            document.getElementById("prefecture").value = item.prefecture || "";
-            document.getElementById("riceType").value = item.riceType || "";
-            document.getElementById("polishingRatio").value = item.polishingRatio || "";
-            syncTempChipByText(item.servingTemp || "花冷え (10°C)");
-
-            document.getElementById("sakeColor").value = item.sakeColor || "";
-            document.getElementById("acidity").value = item.acidity || "適中（平衡順口）";
-            document.getElementById("flavor").value = item.flavor || "";
-            document.getElementById("mouthfeel").value = item.mouthfeel || "";
-            document.getElementById("taste").value = item.taste || "";
-            document.getElementById("notes").value = item.notes || "";
-
-            const radar = item.radar || { aroma: 3, sweetness: 3, acidityScore: 3, umami: 3, dryness: 3 };
+            const radar = log.radar || {};
             document.getElementById("radarAroma").value = radar.aroma || 3;
             document.getElementById("radarSweetness").value = radar.sweetness || 3;
             document.getElementById("radarAcidityScore").value = radar.acidityScore || 3;
@@ -1101,28 +1134,10 @@
             document.getElementById("radarDryness").value = radar.dryness || 3;
             updateFormRadar();
 
-            uploadedImages = Array.isArray(item.images) ? [...item.images] : (item.coverImage ? [item.coverImage] : []);
+            uploadedImages = Array.isArray(log.images) ? [...log.images] : (log.image ? [log.image] : []);
             renderImagePreviews();
 
             switchView("form");
-        }
-
-        function saveLocalLogsToStorage() {
-            try {
-                localStorage.setItem(LOCAL_LOGS_STORAGE, JSON.stringify(sakeLogs));
-            } catch (err) {
-                showToast("本機儲存空間已滿，建議先匯出備份並清理舊照片", true);
-            }
-        }
-
-        function loadLocalLogsFromStorage() {
-            try {
-                const raw = localStorage.getItem(LOCAL_LOGS_STORAGE);
-                sakeLogs = raw ? JSON.parse(raw) : [];
-            } catch (err) {
-                sakeLogs = [];
-            }
-            renderSakeList();
         }
 
         async function saveSakeLog(event) {
@@ -1130,17 +1145,19 @@
             const submitBtn = document.getElementById("saveSubmitBtn");
             submitBtn.disabled = true;
 
-            const editId = document.getElementById("editDocId").value;
-            const recordData = {
+            const editId = document.getElementById("editDocId").value.trim();
+            const nowIso = new Date().toISOString();
+
+            const record = {
                 sakeName: document.getElementById("sakeName").value.trim(),
                 brewery: document.getElementById("brewery").value.trim(),
                 sakeType: document.getElementById("sakeType").value,
-                openDate: document.getElementById("openDate").value || new Date().toISOString().split("T")[0],
+                openDate: document.getElementById("openDate").value || nowIso.slice(0, 10),
                 rating: Number(document.getElementById("ratingValue").value) || 4,
                 prefecture: document.getElementById("prefecture").value.trim(),
                 riceType: document.getElementById("riceType").value.trim(),
                 polishingRatio: document.getElementById("polishingRatio").value.trim(),
-                servingTemp: document.getElementById("servingTemp").value,
+                servingTemp: document.getElementById("servingTemp").value.trim(),
                 sakeColor: document.getElementById("sakeColor").value.trim(),
                 acidity: document.getElementById("acidity").value,
                 flavor: document.getElementById("flavor").value.trim(),
@@ -1154,49 +1171,50 @@
                     umami: Number(document.getElementById("radarUmami").value) || 3,
                     dryness: Number(document.getElementById("radarDryness").value) || 3
                 },
-                images: uploadedImages,
-                coverImage: uploadedImages[0] || "",
-                updatedAt: Date.now()
+                images: [...uploadedImages],
+                updatedAt: nowIso
             };
 
             try {
                 if (db && currentUser) {
-                    const userCollectionRef = collection(db, "users", currentUser.uid, "sakeLogs");
-                    if (editId && !editId.startsWith("local_")) {
-                        await updateDoc(doc(db, "users", currentUser.uid, "sakeLogs", editId), recordData);
+                    const colRef = collection(db, "users", currentUser.uid, "sakeLogs");
+                    if (editId) {
+                        await updateDoc(doc(colRef, editId), record);
+                        showToast("已更新雲端品飲紀錄！");
                     } else {
-                        recordData.createdAt = Date.now();
-                        await addDoc(userCollectionRef, recordData);
+                        record.createdAt = nowIso;
+                        await addDoc(colRef, record);
+                        showToast("已新增並同步至雲端酒單！");
                     }
-                    showToast("已同步儲存至您的 Google 雲端酒單！");
                 } else {
                     if (editId) {
                         const idx = sakeLogs.findIndex((item) => item.id === editId);
                         if (idx !== -1) {
-                            sakeLogs[idx] = { ...sakeLogs[idx], ...recordData };
+                            sakeLogs[idx] = { ...sakeLogs[idx], ...record };
                         }
+                        showToast("已更新本機品飲紀錄！");
                     } else {
-                        recordData.id = `local_${Date.now()}`;
-                        recordData.createdAt = Date.now();
-                        sakeLogs.unshift(recordData);
+                        record.id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                        record.createdAt = nowIso;
+                        sakeLogs.unshift(record);
+                        showToast("已儲存至本機酒單！");
                     }
-                    saveLocalLogsToStorage();
+                    saveLocalLogs();
                     renderSakeList();
-                    showToast("已儲存至本機品飲手帳！");
                 }
                 switchView("list");
             } catch (err) {
-                console.error("Save Sake Error:", err);
-                showToast(`儲存失敗：${err.message}`, true);
+                console.error("Save Error:", err);
+                showToast(`儲存失敗：${err.message || "請稍後再試"}`, true);
             } finally {
                 submitBtn.disabled = false;
             }
         }
 
-        // ==================== 9. 酒單渲染、統計與詳細檢視 ====================
-        function updateDashboardStats() {
+        // ==================== 9. 列表渲染、統計儀表板、詳細與刪除 Modal ====================
+        function updateStatsDashboard() {
             const total = sakeLogs.length;
-            document.getElementById("sakeCountBadge").textContent = String(total);
+            document.getElementById("sakeCountBadge").textContent = total;
             document.getElementById("statTotalCount").textContent = `${total} 支`;
 
             if (total === 0) {
@@ -1206,77 +1224,67 @@
                 return;
             }
 
-            const avg = sakeLogs.reduce((acc, item) => acc + (Number(item.rating) || 0), 0) / total;
+            const avg = sakeLogs.reduce((sum, item) => sum + (Number(item.rating) || 0), 0) / total;
             document.getElementById("statAvgRating").textContent = `${avg.toFixed(1)} ★`;
 
-            const typeCounts = {};
-            const prefCounts = {};
-            sakeLogs.forEach((item) => {
-                if (item.sakeType) typeCounts[item.sakeType] = (typeCounts[item.sakeType] || 0) + 1;
-                if (item.prefecture) prefCounts[item.prefecture] = (prefCounts[item.prefecture] || 0) + 1;
-            });
+            const countMostFrequent = (field) => {
+                const map = {};
+                sakeLogs.forEach((item) => {
+                    const val = (item[field] || "").trim();
+                    if (val) map[val] = (map[val] || 0) + 1;
+                });
+                const entries = Object.entries(map).sort((a, b) => b[1] - a[1]);
+                return entries.length ? entries[0][0] : "-";
+            };
 
-            const topType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
-            const topPref = Object.entries(prefCounts).sort((a, b) => b[1] - a[1])[0];
-
-            document.getElementById("statTopType").textContent = topType ? topType[0] : "-";
-            document.getElementById("statTopPrefecture").textContent = topPref ? topPref[0] : "-";
+            document.getElementById("statTopType").textContent = countMostFrequent("sakeType");
+            document.getElementById("statTopPrefecture").textContent = countMostFrequent("prefecture");
         }
 
         function clearSearch() {
-            const input = document.getElementById("searchInput");
-            input.value = "";
+            document.getElementById("searchInput").value = "";
             renderSakeList();
         }
 
         function renderSakeList() {
-            updateDashboardStats();
+            updateStatsDashboard();
 
-            const query = (document.getElementById("searchInput")?.value || "").trim().toLowerCase();
+            const keyword = (document.getElementById("searchInput")?.value || "").trim().toLowerCase();
             const typeFilter = document.getElementById("filterType")?.value || "";
             const acidityFilter = document.getElementById("filterAcidity")?.value || "";
             const sortOrder = document.getElementById("sortOrder")?.value || "newest";
 
             const clearBtn = document.getElementById("clearSearchBtn");
-            if (clearBtn) {
-                clearBtn.classList.toggle("hidden", !query);
-            }
+            if (clearBtn) clearBtn.classList.toggle("hidden", !keyword);
 
             let filtered = sakeLogs.filter((item) => {
                 if (typeFilter && item.sakeType !== typeFilter) return false;
                 if (acidityFilter && item.acidity !== acidityFilter) return false;
-                if (!query) return true;
-
-                const haystack = [
-                    item.sakeName,
-                    item.brewery,
-                    item.sakeType,
-                    item.prefecture,
-                    item.riceType,
-                    item.flavor,
-                    item.mouthfeel,
-                    item.taste,
-                    item.notes
-                ].join(" ").toLowerCase();
-                return haystack.includes(query);
+                if (keyword) {
+                    const haystack = [
+                        item.sakeName, item.brewery, item.sakeType, item.prefecture,
+                        item.riceType, item.flavor, item.mouthfeel, item.taste, item.notes
+                    ].join(" ").toLowerCase();
+                    if (!haystack.includes(keyword)) return false;
+                }
+                return true;
             });
 
             filtered.sort((a, b) => {
                 if (sortOrder === "rating") {
                     return (Number(b.rating) || 0) - (Number(a.rating) || 0);
                 }
-                const dateA = a.openDate || "";
-                const dateB = b.openDate || "";
-                if (sortOrder === "oldest") {
-                    return dateA.localeCompare(dateB) || (a.createdAt || 0) - (b.createdAt || 0);
-                }
-                return dateB.localeCompare(dateA) || (b.createdAt || 0) - (a.createdAt || 0);
+                const dateA = a.openDate || a.createdAt || "";
+                const dateB = b.openDate || b.createdAt || "";
+                return sortOrder === "oldest"
+                    ? dateA.localeCompare(dateB)
+                    : dateB.localeCompare(dateA);
             });
 
             const grid = document.getElementById("sakeGrid");
             const emptyState = document.getElementById("emptyState");
 
-            if (filtered.length === 0) {
+            if (!filtered.length) {
                 grid.innerHTML = "";
                 emptyState.classList.remove("hidden");
                 return;
@@ -1284,123 +1292,128 @@
 
             emptyState.classList.add("hidden");
             grid.innerHTML = filtered.map((item) => {
-                const stars = Array.from({ length: 5 }, (_, i) =>
-                    `<i class="fa-solid fa-star text-xs ${i < (Number(item.rating) || 0) ? "text-amber-400" : "text-slate-200"}"></i>`
-                ).join("");
+                const cover = (Array.isArray(item.images) && item.images[0]) || item.image || "";
+                const stars = "★".repeat(Number(item.rating) || 0) + "☆".repeat(5 - (Number(item.rating) || 0));
+                const metaTags = [item.prefecture, item.riceType, item.polishingRatio].filter(Boolean);
 
-                const thumbHtml = item.coverImage
-                    ? `<img src="${item.coverImage}" alt="${escapeHtml(item.sakeName)}" class="w-full h-full object-cover">`
-                    : `<div class="w-full h-full bg-indigoSake/10 text-indigoSake/40 flex items-center justify-center text-2xl"><i class="fa-solid fa-wine-bottle"></i></div>`;
-
-                return `<article onclick="openDetailModal('${escapeHtml(item.id)}')" class="washi-card rounded-2xl p-3.5 sm:p-4 flex gap-3.5 cursor-pointer hover:border-indigoSake/40 transition active:scale-[0.99]">
-                    <div class="w-20 h-28 sm:w-24 sm:h-32 rounded-xl overflow-hidden border border-stoneWarm shrink-0 bg-washi">
-                        ${thumbHtml}
+                return `
+                <article onclick="openDetailModal('${escapeHtml(item.id)}')" class="washi-card rounded-2xl p-3.5 sm:p-4 flex gap-3.5 cursor-pointer hover:border-indigoSake/40 hover:shadow-md transition active:scale-[0.99]">
+                    <div class="w-24 h-28 sm:w-28 sm:h-32 rounded-xl overflow-hidden bg-stoneWarm/50 shrink-0 border border-stoneWarm flex items-center justify-center">
+                        ${cover
+                            ? `<img src="${cover}" alt="${escapeHtml(item.sakeName)}" class="w-full h-full object-cover">`
+                            : `<i class="fa-solid fa-wine-bottle text-3xl text-indigoSake/30"></i>`
+                        }
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col justify-between">
-                        <div>
+                        <div class="space-y-1">
                             <div class="flex items-start justify-between gap-2">
-                                <span class="px-2 py-0.5 rounded-md bg-indigoSake/10 text-indigoSake text-[11px] font-bold shrink-0">${escapeHtml(item.sakeType || "清酒")}</span>
-                                <div class="flex items-center space-x-0.5 shrink-0">${stars}</div>
+                                <span class="inline-block px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigoSake/10 text-indigoSake">${escapeHtml(item.sakeType || "清酒")}</span>
+                                <span class="text-xs text-amber-500 tracking-tighter shrink-0">${stars}</span>
                             </div>
-                            <h3 class="font-serif font-bold text-base text-sumi mt-1.5 line-clamp-1">${escapeHtml(item.sakeName)}</h3>
-                            <p class="text-xs text-slate-500 truncate mt-0.5">${escapeHtml(item.brewery)}${item.prefecture ? ` ・ ${escapeHtml(item.prefecture)}` : ""}</p>
+                            <h3 class="font-serif font-bold text-base text-sumi truncate">${escapeHtml(item.sakeName)}</h3>
+                            <p class="text-xs text-slate-500 truncate">${escapeHtml(item.brewery)}</p>
+                            ${metaTags.length
+                                ? `<div class="flex flex-wrap gap-1 pt-0.5">${metaTags.map((t) => `<span class="text-[10px] px-1.5 py-0.5 bg-washi border border-stoneWarm rounded text-slate-600">${escapeHtml(t)}</span>`).join("")}</div>`
+                                : ""
+                            }
                         </div>
-
-                        <div class="space-y-1.5 pt-2">
-                            <div class="flex flex-wrap gap-1">
-                                ${item.riceType ? `<span class="text-[11px] px-2 py-0.5 rounded bg-washi border border-stoneWarm text-slate-600">🌾 ${escapeHtml(item.riceType)}</span>` : ""}
-                                ${item.polishingRatio ? `<span class="text-[11px] px-2 py-0.5 rounded bg-washi border border-stoneWarm text-slate-600">精米 ${escapeHtml(item.polishingRatio)}</span>` : ""}
-                            </div>
-                            <div class="flex items-center justify-between text-[11px] text-slate-400">
-                                <span><i class="fa-regular fa-calendar mr-1"></i>${escapeHtml(item.openDate || "未填日期")}</span>
-                                <span class="text-indigoSake font-medium">查看詳情 <i class="fa-solid fa-chevron-right text-[10px]"></i></span>
-                            </div>
+                        <div class="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-stoneWarm/60 mt-2">
+                            <span class="truncate max-w-[65%]">${escapeHtml(item.flavor || item.taste || "點擊檢視品飲細節")}</span>
+                            <span class="shrink-0">${escapeHtml(item.openDate || "")}</span>
                         </div>
                     </div>
                 </article>`;
             }).join("");
         }
 
-        function openDetailModal(id) {
-            const item = sakeLogs.find((log) => log.id === id);
-            if (!item) return;
+        function openDetailModal(docId) {
+            const log = sakeLogs.find((item) => item.id === docId);
+            if (!log) return;
 
-            const stars = Array.from({ length: 5 }, (_, i) =>
-                `<i class="fa-solid fa-star text-sm ${i < (Number(item.rating) || 0) ? "text-amber-400" : "text-slate-200"}"></i>`
-            ).join("");
+            const images = Array.isArray(log.images) ? log.images : (log.image ? [log.image] : []);
+            const stars = "★".repeat(Number(log.rating) || 0) + "☆".repeat(5 - (Number(log.rating) || 0));
+            const radarSvg = buildRadarSvg(log.radar || {}, 170);
 
-            const imgs = Array.isArray(item.images) && item.images.length
-                ? item.images
-                : (item.coverImage ? [item.coverImage] : []);
-
-            const galleryHtml = imgs.length
-                ? `<div class="grid ${imgs.length > 1 ? "grid-cols-2" : "grid-cols-1"} gap-2">
-                    ${imgs.map((src) => `<img src="${src}" alt="酒標" class="w-full max-h-56 object-contain bg-washi rounded-xl border border-stoneWarm">`).join("")}
-                   </div>`
-                : "";
-
-            const radarSvg = buildRadarSvg(item.radar || { aroma: 3, sweetness: 3, acidityScore: 3, umami: 3, dryness: 3 }, 170);
-
-            document.getElementById("detailModalContent").innerHTML = `
-                <div class="flex items-start justify-between gap-2 border-b border-stoneWarm pb-3">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="px-2.5 py-0.5 rounded-md bg-indigoSake text-white text-xs font-bold">${escapeHtml(item.sakeType || "清酒")}</span>
-                            <div>${stars}</div>
-                        </div>
-                        <h3 class="font-serif text-xl font-bold text-sumi mt-1.5">${escapeHtml(item.sakeName)}</h3>
-                        <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(item.brewery)}${item.prefecture ? ` ・ ${escapeHtml(item.prefecture)}` : ""}</p>
+            const content = document.getElementById("detailModalContent");
+            content.innerHTML = `
+                <div class="flex items-start justify-between gap-3 border-b border-stoneWarm pb-3">
+                    <div class="min-w-0">
+                        <span class="inline-block px-2.5 py-0.5 text-xs font-bold rounded-md bg-indigoSake/10 text-indigoSake mb-1">${escapeHtml(log.sakeType || "清酒")}</span>
+                        <h3 class="font-serif text-xl font-bold text-sumi break-words">${escapeHtml(log.sakeName)}</h3>
+                        <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(log.brewery)} · ${escapeHtml(log.openDate || "")}</p>
                     </div>
                     <button type="button" onclick="closeDetailModal()" class="text-slate-400 hover:text-sumi p-2 -mr-2">
                         <i class="fa-solid fa-xmark text-xl"></i>
                     </button>
                 </div>
 
-                ${galleryHtml}
+                ${images.length ? `
+                <div class="space-y-2">
+                    <div class="w-full h-56 sm:h-64 rounded-xl overflow-hidden bg-washi border border-stoneWarm flex items-center justify-center">
+                        <img id="detailMainImg" src="${images[0]}" alt="酒標大圖" class="w-full h-full object-contain">
+                    </div>
+                    ${images.length > 1 ? `
+                    <div class="flex items-center gap-2 overflow-x-auto pb-1">
+                        ${images.map((src, i) => `
+                            <button type="button" onclick="selectDetailImage('${src}')" class="w-14 h-14 rounded-lg overflow-hidden border border-stoneWarm shrink-0 hover:border-indigoSake transition">
+                                <img src="${src}" alt="縮圖 ${i + 1}" class="w-full h-full object-cover">
+                            </button>
+                        `).join("")}
+                    </div>` : ""}
+                </div>` : ""}
 
-                <div class="grid grid-cols-2 gap-2 text-xs bg-washi p-3 rounded-xl border border-stoneWarm">
-                    <div><span class="text-slate-400">使用酒米：</span><strong class="text-sumi">${escapeHtml(item.riceType || "-")}</strong></div>
-                    <div><span class="text-slate-400">精米步合：</span><strong class="text-sumi">${escapeHtml(item.polishingRatio || "-")}</strong></div>
-                    <div><span class="text-slate-400">品飲溫度：</span><strong class="text-sumi">${escapeHtml(item.servingTemp || "-")}</strong></div>
-                    <div><span class="text-slate-400">開瓶日期：</span><strong class="text-sumi">${escapeHtml(item.openDate || "-")}</strong></div>
-                    <div><span class="text-slate-400">酒液外觀：</span><strong class="text-sumi">${escapeHtml(item.sakeColor || "-")}</strong></div>
-                    <div><span class="text-slate-400">酸度表現：</span><strong class="text-sumi">${escapeHtml(item.acidity || "-")}</strong></div>
+                <div class="grid grid-cols-2 gap-2.5 text-xs bg-washi rounded-xl p-3 border border-stoneWarm">
+                    <div><span class="text-slate-400 block">整體評價</span><span class="text-amber-500 text-sm">${stars}</span></div>
+                    <div><span class="text-slate-400 block">品飲溫度</span><span class="font-medium text-sumi">${escapeHtml(log.servingTemp || "-")}</span></div>
+                    <div><span class="text-slate-400 block">產地</span><span class="font-medium text-sumi">${escapeHtml(log.prefecture || "-")}</span></div>
+                    <div><span class="text-slate-400 block">酒米 / 精米步合</span><span class="font-medium text-sumi">${escapeHtml([log.riceType, log.polishingRatio].filter(Boolean).join(" / ") || "-")}</span></div>
+                    <div><span class="text-slate-400 block">酒液外觀</span><span class="font-medium text-sumi">${escapeHtml(log.sakeColor || "-")}</span></div>
+                    <div><span class="text-slate-400 block">酸度表現</span><span class="font-medium text-sumi">${escapeHtml(log.acidity || "-")}</span></div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center bg-white rounded-xl border border-stoneWarm p-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                     <div class="w-40 h-40 mx-auto">${radarSvg}</div>
                     <div class="space-y-2 text-xs">
-                        <div><span class="font-bold text-indigoSake">風味香氣：</span><span class="text-slate-700">${escapeHtml(item.flavor || "未填寫")}</span></div>
-                        <div><span class="font-bold text-indigoSake">口感酒體：</span><span class="text-slate-700">${escapeHtml(item.mouthfeel || "未填寫")}</span></div>
-                        <div><span class="font-bold text-indigoSake">味道甘辛：</span><span class="text-slate-700">${escapeHtml(item.taste || "未填寫")}</span></div>
+                        <div><span class="font-bold text-indigoSake">風味香氣：</span><span class="text-slate-600">${escapeHtml(log.flavor || "未填寫")}</span></div>
+                        <div><span class="font-bold text-indigoSake">口感酒體：</span><span class="text-slate-600">${escapeHtml(log.mouthfeel || "未填寫")}</span></div>
+                        <div><span class="font-bold text-indigoSake">甘辛旨味：</span><span class="text-slate-600">${escapeHtml(log.taste || "未填寫")}</span></div>
                     </div>
                 </div>
 
-                ${item.notes ? `<div class="bg-amber-50/60 border border-amber-200/60 rounded-xl p-3 text-xs text-sumi leading-relaxed">
-                    <p class="font-bold text-amber-900 mb-1"><i class="fa-solid fa-pen-nib mr-1"></i>品飲與搭餐筆記</p>
-                    <p class="whitespace-pre-line">${escapeHtml(item.notes)}</p>
+                ${log.notes ? `
+                <div class="bg-amber-50/60 border border-amber-200/60 rounded-xl p-3 text-xs text-sumi leading-relaxed">
+                    <p class="font-bold text-amber-800 mb-1"><i class="fa-solid fa-pen-nib mr-1"></i>品飲心得 & 搭餐筆記</p>
+                    <p class="whitespace-pre-line">${escapeHtml(log.notes)}</p>
                 </div>` : ""}
 
-                <div class="flex items-center justify-between gap-2.5 pt-2 border-t border-stoneWarm">
-                    <button type="button" onclick="openDeleteModal('${escapeHtml(item.id)}', '${escapeHtml(item.sakeName)}')" class="px-4 py-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold transition">
+                <div class="flex items-center justify-between gap-2 pt-3 border-t border-stoneWarm">
+                    <button type="button" onclick="requestDeleteLog('${escapeHtml(log.id)}', '${escapeHtml(log.sakeName)}')" class="px-4 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold transition">
                         <i class="fa-solid fa-trash-can mr-1"></i>刪除
                     </button>
-                    <button type="button" onclick="editSakeLog('${escapeHtml(item.id)}')" class="flex-1 py-2.5 px-4 rounded-xl bg-indigoSake hover:bg-slate-800 text-white text-xs font-bold shadow transition">
-                        <i class="fa-solid fa-pen-to-square mr-1"></i>編輯此紀錄
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="closeDetailModal()" class="px-4 py-2.5 rounded-xl border border-stoneWarm text-xs font-medium text-slate-600 hover:bg-washi">關閉</button>
+                        <button type="button" onclick="editSakeLog('${escapeHtml(log.id)}')" class="px-4 py-2.5 rounded-xl bg-indigoSake hover:bg-slate-800 text-white text-xs font-bold shadow transition">
+                            <i class="fa-solid fa-pen-to-square mr-1"></i>編輯紀錄
+                        </button>
+                    </div>
                 </div>
             `;
 
             document.getElementById("detailModal").classList.remove("hidden");
         }
 
+        function selectDetailImage(src) {
+            const mainImg = document.getElementById("detailMainImg");
+            if (mainImg) mainImg.src = src;
+        }
+
         function closeDetailModal() {
             document.getElementById("detailModal").classList.add("hidden");
         }
 
-        function openDeleteModal(id, name) {
-            pendingDeleteId = id;
-            document.getElementById("deleteTargetName").textContent = `確定要刪除「${name}」嗎？刪除後將無法復原。`;
+        function requestDeleteLog(docId, sakeName) {
+            pendingDeleteId = docId;
+            document.getElementById("deleteTargetName").textContent = `即將刪除「${sakeName}」，刪除後將無法復原。`;
             document.getElementById("deleteConfirmModal").classList.remove("hidden");
         }
 
@@ -1416,180 +1429,156 @@
             closeDetailModal();
 
             try {
-                if (db && currentUser && !targetId.startsWith("local_")) {
+                if (db && currentUser) {
                     await deleteDoc(doc(db, "users", currentUser.uid, "sakeLogs", targetId));
+                    showToast("已從雲端刪除品飲紀錄");
                 } else {
                     sakeLogs = sakeLogs.filter((item) => item.id !== targetId);
-                    saveLocalLogsToStorage();
+                    saveLocalLogs();
                     renderSakeList();
+                    showToast("已從本機刪除品飲紀錄");
                 }
-                showToast("已刪除該筆品飲紀錄");
             } catch (err) {
                 showToast(`刪除失敗：${err.message}`, true);
             }
         }
 
-        // ==================== 10. JSON 備份與還原 ====================
+        // ==================== 10. 本機存取與 JSON 備份 / 還原 ====================
+        function loadLocalLogs() {
+            try {
+                const raw = localStorage.getItem(LOCAL_LOGS_STORAGE);
+                sakeLogs = raw ? JSON.parse(raw) : [];
+            } catch (err) {
+                sakeLogs = [];
+            }
+            renderSakeList();
+        }
+
+        function saveLocalLogs() {
+            try {
+                localStorage.setItem(LOCAL_LOGS_STORAGE, JSON.stringify(sakeLogs));
+            } catch (err) {
+                showToast("本機儲存空間不足，建議登入 Google 雲端或匯出備份！", true);
+            }
+        }
+
         function exportBackupJson() {
-            const dataStr = JSON.stringify(sakeLogs, null, 2);
-            const blob = new Blob([dataStr], { type: "application/json" });
+            if (!sakeLogs.length) {
+                showToast("目前沒有可備份的品飲紀錄", true);
+                return;
+            }
+            const blob = new Blob([JSON.stringify(sakeLogs, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `sake_tasting_backup_${new Date().toISOString().split("T")[0]}.json`;
+            a.download = `sake-tasting-backup-${new Date().toISOString().slice(0, 10)}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            showToast("已匯出清酒手帳備份檔！");
+            showToast(`已成功匯出 ${sakeLogs.length} 筆品飲備份檔`);
         }
 
-        function importBackupJson(event) {
+        async function importBackupJson(event) {
             const file = event.target.files?.[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const imported = JSON.parse(e.target.result);
-                    if (!Array.isArray(imported)) {
-                        throw new Error("備份檔格式不正確");
-                    }
-
-                    if (db && currentUser) {
-                        const colRef = collection(db, "users", currentUser.uid, "sakeLogs");
-                        for (const item of imported) {
-                            const { id, ...rest } = item;
-                            await addDoc(colRef, { ...rest, updatedAt: Date.now() });
-                        }
-                        showToast(`已成功匯入 ${imported.length} 筆紀錄至雲端！`);
-                    } else {
-                        const existingIds = new Set(sakeLogs.map((x) => x.id));
-                        let addedCount = 0;
-                        imported.forEach((item, index) => {
-                            const safeId = item.id && !existingIds.has(item.id) ? item.id : `local_${Date.now()}_${index}`;
-                            sakeLogs.unshift({ ...item, id: safeId });
-                            addedCount++;
-                        });
-                        saveLocalLogsToStorage();
-                        renderSakeList();
-                        showToast(`已成功還原 ${addedCount} 筆品飲紀錄！`);
-                    }
-                } catch (err) {
-                    showToast(`還原失敗：${err.message}`, true);
+            try {
+                const text = await file.text();
+                const imported = JSON.parse(text);
+                if (!Array.isArray(imported)) {
+                    throw new Error("備份檔格式不正確");
                 }
-            };
-            reader.readAsText(file);
+
+                if (db && currentUser) {
+                    const colRef = collection(db, "users", currentUser.uid, "sakeLogs");
+                    for (const item of imported) {
+                        const { id, ...cleanData } = item;
+                        await addDoc(colRef, {
+                            ...cleanData,
+                            importedAt: new Date().toISOString()
+                        });
+                    }
+                    showToast(`已成功還原 ${imported.length} 筆紀錄至雲端！`);
+                } else {
+                    const existingIds = new Set(sakeLogs.map((i) => i.id));
+                    const merged = [...sakeLogs];
+                    imported.forEach((item) => {
+                        const newId = item.id && !existingIds.has(item.id)
+                            ? item.id
+                            : `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                        merged.push({ ...item, id: newId });
+                    });
+                    sakeLogs = merged;
+                    saveLocalLogs();
+                    renderSakeList();
+                    showToast(`已成功還原 ${imported.length} 筆紀錄至本機！`);
+                }
+            } catch (err) {
+                showToast(`還原失敗：${err.message}`, true);
+            }
             event.target.value = "";
         }
 
-        // ==================== 11. Firebase 雲端同步與 Google 登入 ====================
-        function updateAuthUI(user) {
-            const loginDesk = document.getElementById("googleLoginBtn");
-            const badgeDesk = document.getElementById("userProfileBadge");
-            const avatarDesk = document.getElementById("userAvatar");
-            const nameDesk = document.getElementById("userDisplayName");
-
-            const loginMob = document.getElementById("googleLoginBtnMobile");
-            const badgeMob = document.getElementById("userProfileBadgeMobile");
-            const avatarMob = document.getElementById("userAvatarMobile");
-            const nameMob = document.getElementById("userDisplayNameMobile");
-
+        // ==================== 11. Firebase 雲端登入與即時同步 ====================
+        function updateAuthUi(user) {
             const cloudDot = document.getElementById("cloudDot");
             const cloudText = document.getElementById("cloudText");
 
+            const loginBtn = document.getElementById("googleLoginBtn");
+            const profileBadge = document.getElementById("userProfileBadge");
+            const avatar = document.getElementById("userAvatar");
+            const displayName = document.getElementById("userDisplayName");
+
+            const loginBtnM = document.getElementById("googleLoginBtnMobile");
+            const profileBadgeM = document.getElementById("userProfileBadgeMobile");
+            const avatarM = document.getElementById("userAvatarMobile");
+            const displayNameM = document.getElementById("userDisplayNameMobile");
+
             if (user) {
-                loginDesk?.classList.add("hidden");
-                badgeDesk?.classList.remove("hidden");
-                badgeDesk?.classList.add("flex");
-                nameDesk.textContent = user.displayName || user.email || "會員";
-                if (user.photoURL) {
-                    avatarDesk.src = user.photoURL;
-                    avatarDesk.classList.remove("hidden");
-                }
+                cloudDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+                cloudText.textContent = "雲端同步中";
 
-                loginMob?.classList.add("hidden");
-                badgeMob?.classList.remove("hidden");
-                badgeMob?.classList.add("flex");
-                nameMob.textContent = user.displayName || "已登入";
-                if (user.photoURL) {
-                    avatarMob.src = user.photoURL;
-                    avatarMob.classList.remove("hidden");
-                }
+                loginBtn.classList.add("hidden");
+                profileBadge.classList.remove("hidden");
+                profileBadge.classList.add("flex");
+                displayName.textContent = user.displayName || user.email || "會員";
 
-                if (cloudDot) cloudDot.className = "w-2 h-2 rounded-full bg-emerald-400";
-                if (cloudText) cloudText.textContent = "雲端同步中";
+                loginBtnM.classList.add("hidden");
+                profileBadgeM.classList.remove("hidden");
+                profileBadgeM.classList.add("flex");
+                displayNameM.textContent = user.displayName || user.email || "會員";
+
+                if (user.photoURL) {
+                    avatar.src = user.photoURL;
+                    avatar.classList.remove("hidden");
+                    avatarM.src = user.photoURL;
+                    avatarM.classList.remove("hidden");
+                }
             } else {
-                loginDesk?.classList.remove("hidden");
-                badgeDesk?.classList.add("hidden");
-                badgeDesk?.classList.remove("flex");
+                cloudDot.className = "w-2 h-2 rounded-full bg-amber-400";
+                cloudText.textContent = "本機模式";
 
-                loginMob?.classList.remove("hidden");
-                badgeMob?.classList.add("hidden");
-                badgeMob?.classList.remove("flex");
+                loginBtn.classList.remove("hidden");
+                profileBadge.classList.add("hidden");
+                profileBadge.classList.remove("flex");
 
-                if (cloudDot) cloudDot.className = "w-2 h-2 rounded-full bg-amber-400";
-                if (cloudText) cloudText.textContent = "本機模式";
-            }
-        }
-
-        function initFirebaseServices() {
-            try {
-                const rawConfig = typeof __firebase_config !== "undefined"
-                    ? JSON.parse(__firebase_config)
-                    : defaultFirebaseConfig;
-
-                if (!rawConfig?.apiKey || rawConfig.apiKey.startsWith("REPLACE_WITH")) {
-                    loadLocalLogsFromStorage();
-                    return;
-                }
-
-                const app = initializeApp(rawConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-
-                setPersistence(auth, browserLocalPersistence).catch(() => {});
-
-                onAuthStateChanged(auth, (user) => {
-                    currentUser = user;
-                    updateAuthUI(user);
-
-                    if (unsubscribeLogs) {
-                        unsubscribeLogs();
-                        unsubscribeLogs = null;
-                    }
-
-                    if (user && db) {
-                        document.getElementById("loadingIndicator")?.classList.remove("hidden");
-                        const logsRef = collection(db, "users", user.uid, "sakeLogs");
-                        unsubscribeLogs = onSnapshot(logsRef, (snapshot) => {
-                            document.getElementById("loadingIndicator")?.classList.add("hidden");
-                            sakeLogs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-                            renderSakeList();
-                        }, (err) => {
-                            document.getElementById("loadingIndicator")?.classList.add("hidden");
-                            showToast(`雲端讀取失敗：${err.message}`, true);
-                            loadLocalLogsFromStorage();
-                        });
-                    } else {
-                        loadLocalLogsFromStorage();
-                    }
-                });
-            } catch (err) {
-                console.warn("Firebase init fallback to local mode:", err);
-                loadLocalLogsFromStorage();
+                loginBtnM.classList.remove("hidden");
+                profileBadgeM.classList.add("hidden");
+                profileBadgeM.classList.remove("flex");
             }
         }
 
         async function signInWithGoogle() {
             if (!auth) {
-                showToast("尚未設定 Firebase Browser Key，目前使用本機儲存模式（可正常新增與 AI 辨識）", true);
+                showToast("雲端服務初始化中，請稍候再試", true);
                 return;
             }
             try {
+                await setPersistence(auth, browserLocalPersistence);
                 const provider = new GoogleAuthProvider();
                 await signInWithPopup(auth, provider);
-                showToast("Google 帳號登入成功！");
+                showToast("Google 帳號登入成功，已切換為雲端同步！");
             } catch (err) {
                 console.error("Google Sign-In Error:", err);
                 showToast(`登入失敗：${err.message}`, true);
@@ -1600,46 +1589,85 @@
             if (!auth) return;
             try {
                 await signOut(auth);
-                showToast("已登出 Google 帳號");
+                showToast("已登出 Google 帳號，切換回本機模式");
             } catch (err) {
                 showToast(`登出失敗：${err.message}`, true);
             }
         }
 
-        // ==================== 12. 掛載全域函式並啟動初始化 ====================
+        function initFirebase() {
+            try {
+                const app = initializeApp(defaultFirebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                    updateAuthUi(user);
+
+                    if (unsubscribeLogs) {
+                        unsubscribeLogs();
+                        unsubscribeLogs = null;
+                    }
+
+                    if (user) {
+                        document.getElementById("loadingIndicator").classList.remove("hidden");
+                        const colRef = collection(db, "users", user.uid, "sakeLogs");
+                        unsubscribeLogs = onSnapshot(colRef, (snapshot) => {
+                            document.getElementById("loadingIndicator").classList.add("hidden");
+                            sakeLogs = snapshot.docs.map((docSnap) => ({
+                                id: docSnap.id,
+                                ...docSnap.data()
+                            }));
+                            renderSakeList();
+                        }, (err) => {
+                            document.getElementById("loadingIndicator").classList.add("hidden");
+                            console.error("Firestore Snapshot Error:", err);
+                            showToast(`雲端讀取失敗：${err.message}`, true);
+                        });
+                    } else {
+                        loadLocalLogs();
+                    }
+                });
+            } catch (err) {
+                console.error("Firebase Init Error:", err);
+                loadLocalLogs();
+            }
+        }
+
+        // ==================== 12. 掛載全域函式並啟動應用 ====================
         Object.assign(window, {
             copyCurrentUrl,
-            switchView,
-            openNewForm,
-            setRating,
-            selectTempChip,
-            appendTag,
-            updateFormRadar,
-            handleImageUpload,
-            removeUploadedImage,
-            setCoverImage,
-            recognizeSakeLabel,
-            saveSakeLog,
-            renderSakeList,
-            clearSearch,
-            openDetailModal,
-            closeDetailModal,
-            editSakeLog,
-            openDeleteModal,
-            closeDeleteModal,
-            confirmDeleteAction,
+            signInWithGoogle,
+            signOutGoogle,
             exportBackupJson,
             importBackupJson,
-            signInWithGoogle,
-            signOutGoogle
+            switchView,
+            openNewForm,
+            renderSakeList,
+            clearSearch,
+            handleImageUpload,
+            recognizeSakeLabel,
+            saveSakeLog,
+            selectTempChip,
+            updateFormRadar,
+            appendTag,
+            setRating,
+            setCoverImage,
+            removeUploadedImage,
+            openDetailModal,
+            selectDetailImage,
+            closeDetailModal,
+            editSakeLog,
+            requestDeleteLog,
+            closeDeleteModal,
+            confirmDeleteAction
         });
 
-        window.addEventListener("DOMContentLoaded", () => {
-            detectInAppBrowser();
-            renderStarSelector(4);
-            updateFormRadar();
-            initFirebaseServices();
-        });
+        detectInAppBrowser();
+        renderStarSelector(4);
+        updateFormRadar();
+        initFirebase();
     </script>
 </body>
 </html>
