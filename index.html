@@ -1077,7 +1077,7 @@
                     }
                 ]
                 : [
-                    // 1. Google AI Studio 免費版最新官方模型（依系統提示升級至 gemini-3.8-flash，免綁卡）
+                    // 1. Google AI Studio 免費版主力模型（免綁卡）
                     {
                         url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
                         headers: {
@@ -1085,33 +1085,33 @@
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 2. 輕量快速備援模型（尖峰時段較不易塞車，同樣免綁卡）
+                    // 2. 官方備援模型：Gemini 3.7 Flash（獨立每日免費額度，免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-lite:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 3. Gemini 3 Flash 備援模型（同樣免綁卡）
+                    // 3. 官方備援模型：Gemini 3.6 Flash（獨立每日免費額度，免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 4. Gemini 2.5 Flash Lite 備援模型（免綁卡）
+                    // 4. 官方輕量高速備援：Gemini 3.5 Flash-Lite（獨立每日免費額度，免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": GEMINI_API_KEY
                         }
                     },
-                    // 5. 同專案傳統 AIzaSy 金鑰備援（走免費版 gemini-3.8-flash）
+                    // 5. 同專案傳統 AIzaSy 金鑰備援（免綁卡）
                     {
-                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+                        url: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
                         headers: {
                             "Content-Type": "application/json",
                             "x-goog-api-key": defaultFirebaseConfig.apiKey
@@ -1147,7 +1147,14 @@
                                 lastErrorMsg = data?.error?.message || `HTTP ${res.status}`;
                                 if (!primaryErrorMsg) primaryErrorMsg = lastErrorMsg;
 
-                                const isTemporaryBusy = res.status === 503 || res.status === 429 ||
+                                // 若為單一模型每日額度已滿（HTTP 429），立刻跳轉下一個免費備援模型，不浪費時間重試
+                                const isQuotaExceeded = res.status === 429 || /quota|rate.?limit|exceeded/i.test(lastErrorMsg);
+                                if (isQuotaExceeded) {
+                                    btnText.textContent = "切換備援模型中...";
+                                    break;
+                                }
+
+                                const isTemporaryBusy = res.status === 503 ||
                                     /high demand|overloaded|unavailable|try again/i.test(lastErrorMsg);
                                 if (isTemporaryBusy && attempt < maxAttempts) {
                                     btnText.textContent = "AI 尖峰重試中...";
